@@ -1,0 +1,21 @@
+services:
+  # All-in-one DNS server for testing
+  dns-test:
+    image: ubuntu/bind9:latest
+    container_name: dns-test
+    volumes:
+      - ./bind-config:/etc/bind
+      - ./zones:/var/cache/bind/zones
+    ports:
+      - "15353:53/udp"
+      - "15353:53/tcp"
+    networks:
+      dns-test:
+        ipv4_address: 172.20.0.10
+
+networks:
+  dns-test:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

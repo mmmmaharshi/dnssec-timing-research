@@ -1,0 +1,17 @@
+# Rust build artifacts
+constant-time-dnssec/target/
+*.lock
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Results (generated)
+results/*.csv
+results/*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp

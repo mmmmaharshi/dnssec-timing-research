@@ -1,0 +1,27 @@
+[package]
+name = "constant-time-dnssec"
+version = "0.1.0"
+edition = "2024"
+description = "Constant-time DNSSEC signature verification primitives"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Constant-time operations
+subtle = "2.5"
+
+# Cryptographic signature verification
+ed25519-dalek = { version = "2.1", features = ["digest", "rand_core"] }
+rsa = { version = "0.9", features = ["sha2"] }
+p256 = { version = "0.13", features = ["ecdsa"] }
+sha2 = "0.10"
+
+# Data parsing
+bytes = "1.7"
+
+[dev-dependencies]
+criterion = "0.5"
+rand = "0.8"
+
+[[bench]]
+name = "constant_time_bench"
+harness = false
