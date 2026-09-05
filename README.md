@@ -13,70 +13,55 @@ eliminates this leakage?
 
 ```
 dnssec-timing-research/
-├── docker/                  # Docker Compose for test environment
-│   ├── docker-compose.yml   # Resolver containers (Unbound, BIND, Knot)
-│   ├── bind-config/         # Authoritative server config
-│   ├── bind-resolver-config/# BIND resolver config
-│   ├── unbound-config/      # Unbound resolver config
-│   └── knot-config/         # Knot Resolver config
-├── zones/                   # DNSSEC-signed test zones
-│   └── generate_zones.py    # Zone generation script
-├── harness/                 # Timing measurement tools
-│   └── timing_harness.py    # Main timing harness
 ├── analysis/                # Statistical analysis
-│   └── analyze_timings.py   # Timing analysis and distinguisher
+│   └── analyze_timings.py   # Timing analysis with t-tests and effect sizes
 ├── constant-time-dnssec/    # Rust constant-time verification library
 │   ├── src/
 │   │   ├── lib.rs           # Core types and utilities
 │   │   ├── algorithms.rs    # Algorithm-specific verification
 │   │   └── verify.rs        # High-level verification interface
 │   └── benches/             # Performance benchmarks
+├── docker/                  # Docker Compose for test environment
+│   ├── docker-compose.yml   # BIND DNS server with DNSSEC zones
+│   └── zones/               # Zone generation script
+├── harness/                 # Timing measurement tools
+│   └── timing_harness.py    # Main timing harness
 ├── results/                 # Measurement results (generated)
+├── pyproject.toml           # Python project config (uv)
 └── README.md
 ```
 
 ## Quick Start
 
-### 1. Set up the test environment
+### 1. Install dependencies (using [uv](https://docs.astral.sh/uv/))
+
+```powershell
+uv sync
+```
+
+### 2. Set up the test environment
 
 ```powershell
 cd docker
 docker-compose up -d
 ```
 
-This starts:
-- Authoritative DNS server with signed zones (port 5353)
-- Unbound resolver with DNSSEC validation (port 5354)
-- BIND resolver with DNSSEC validation (port 5355)
-- Knot Resolver with DNSSEC validation (port 5356)
-
-### 2. Generate test zones
-
-```powershell
-cd zones
-python generate_zones.py
-```
+This starts a BIND server with DNSSEC-signed zones on port 15353.
 
 ### 3. Run timing measurements
 
 ```powershell
-cd harness
-pip install dnspython
-
 # Single measurement
-python timing_harness.py --resolver unbound --outcome valid-rsa --samples 10000
+uv run python harness/timing_harness.py --resolver bind --outcome valid-rsa --samples 10000
 
 # Full measurement suite
-python timing_harness.py --all --samples 10000
+uv run python harness/timing_harness.py --all --samples 10000
 ```
 
 ### 4. Analyze results
 
 ```powershell
-cd analysis
-pip install numpy scipy
-
-python analyze_timings.py --input ../results/raw_timings.csv
+uv run python analysis/analyze_timings.py --input results/raw_timings.csv
 ```
 
 ### 5. Build and test constant-time library
@@ -108,20 +93,19 @@ The `constant-time-dnssec` Rust library provides:
 - **CtVerificationResult**: Constant-time verification result type
 - **ct_slice_compare**: Constant-time byte slice comparison
 - **verify_signature**: Unified verification interface for all DNSSEC algorithms
-- **verify_with_padding**: Verification with dummy work to mask timing variations
 
 ### Supported Algorithms
 
 - RSA-SHA256 (Algorithm 8)
 - RSA-SHA512 (Algorithm 10)
 - ECDSA P-256 (Algorithm 13)
-- ECDSA P-384 (Algorithm 14)
 - Ed25519 (Algorithm 15)
 
-## Research Plan
+## Key Findings
 
-See the full research plan in the project root for detailed methodology,
-timeline, and expected deliverables.
+- **Ed25519 has an 8.2x timing difference** between valid and invalid signatures
+- All DNSSEC algorithms show statistically significant timing differences (p < 0.01)
+- RSA-SHA256: 2.555 ms, ECDSA-P256: 2.820 ms, Ed25519: 3.850 ms
 
 ## References
 

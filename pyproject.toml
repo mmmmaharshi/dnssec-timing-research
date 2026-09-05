@@ -1,0 +1,14 @@
+[project]
+name = "dnssec-timing-research"
+version = "0.1.0"
+description = "DNSSEC timing side-channel research: measurement harness, analysis, and constant-time verification"
+readme = "README.md"
+authors = [
+    { name = "Manohar Maharshi", email = "pmanoharmaharshi@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "dnspython>=2.8.0",
+    "numpy>=2.4.0",
+    "scipy>=1.17.0",
+]
