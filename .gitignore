@@ -1,6 +1,6 @@
 # Rust build artifacts
 constant-time-dnssec/target/
-*.lock
+constant-time-dnssec/Cargo.lock
 
 # Python
 __pycache__/
@@ -10,6 +10,12 @@ __pycache__/
 # Results (generated)
 results/*.csv
 results/*.txt
+
+# Generated DNSSEC keys and zones
+docker/zones/K*
+docker/zones/dsset-*
+docker/zones/test-*.zone
+docker/zones/test-*.zone.signed
 
 # IDE
 .vscode/
