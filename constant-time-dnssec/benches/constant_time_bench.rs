@@ -5,12 +5,11 @@
 //! 2. Timing variance across different algorithms
 //! 3. Overhead of constant-time padding
 
-use constant_time_dnssec::{
-    verify_signature, DnssecAlgorithm,
-    DnssecSignature, SignedData,
-};
+#![allow(clippy::semicolon_if_nothing_returned)]
+
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use constant_time_dnssec::{DnssecAlgorithm, DnssecSignature, SignedData, verify_signature};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 /// Generate a test signature with the specified algorithm
 fn test_signature(algorithm: DnssecAlgorithm, valid: bool) -> DnssecSignature {

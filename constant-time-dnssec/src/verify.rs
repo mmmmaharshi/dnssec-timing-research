@@ -6,7 +6,7 @@
 use crate::algorithms;
 use crate::{CtVerificationResult, DnssecSignature, SignedData};
 
-/// Verification result that can be used in constant-time operations
+/// Verification result that can be used in constant-time operations.
 pub type VerificationResult = CtVerificationResult;
 
 /// Verify a DNSSEC signature using the appropriate algorithm.
@@ -42,7 +42,7 @@ pub fn verify_signature(sig: &DnssecSignature, data: &SignedData) -> Verificatio
         crate::DnssecAlgorithm::EcdsaP256Sha256 => algorithms::verify_ecdsa_p256(sig, data),
         crate::DnssecAlgorithm::Rsasha256 => algorithms::verify_rsa_sha256(sig, data),
         crate::DnssecAlgorithm::Rsasha512 => algorithms::verify_rsa_sha512(sig, data),
-        // Unsupported algorithms return failure
+        // Unsupported algorithms return failure.
         _ => CtVerificationResult::failure(),
     }
 }
@@ -57,8 +57,7 @@ mod tests {
         let (sig_len, key_len) = match algorithm {
             DnssecAlgorithm::Ed25519 => (64, 32),
             DnssecAlgorithm::EcdsaP256Sha256 => (64, 65),
-            DnssecAlgorithm::Rsasha256 => (256, 256),
-            DnssecAlgorithm::Rsasha512 => (256, 256),
+            DnssecAlgorithm::Rsasha256 | DnssecAlgorithm::Rsasha512 => (256, 256),
             _ => (64, 64),
         };
 
@@ -77,10 +76,9 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_unsupported_algorithm() {
+    fn verify_signature_returns_failure_for_unsupported_algorithm() {
         let sig = make_test_sig(DnssecAlgorithm::Rsasha1);
         let data = make_test_data();
-        let result = verify_signature(&sig, &data);
-        assert!(!result.is_valid());
+        assert!(!verify_signature(&sig, &data).is_valid());
     }
 }

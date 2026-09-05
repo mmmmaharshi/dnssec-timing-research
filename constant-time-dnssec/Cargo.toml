@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Constant-time DNSSEC signature verification primitives"
 license = "MIT OR Apache-2.0"
+readme = "../../README.md"
 
 [dependencies]
 # Constant-time operations
@@ -25,3 +26,11 @@ rand = "0.8"
 [[bench]]
 name = "constant_time_bench"
 harness = false
+
+[lints.rust]
+future-incompatible = "warn"
+
+[lints.clippy]
+redundant_clone = "deny"
+manual_let_else = "warn"
+pedantic = { level = "warn", priority = -1 }

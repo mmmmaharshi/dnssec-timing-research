@@ -19,30 +19,31 @@ use subtle::ConstantTimeEq;
 pub mod algorithms;
 pub mod verify;
 
-pub use verify::{verify_signature, VerificationResult};
+pub use verify::{VerificationResult, verify_signature};
 
-/// DNSSEC algorithm numbers as defined in RFC 4034
+/// DNSSEC algorithm numbers as defined in RFC 4034.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum DnssecAlgorithm {
-    /// RSA/SHA-1 (deprecated, included for completeness)
+    /// RSA/SHA-1 (deprecated, included for completeness).
     Rsasha1 = 5,
-    /// RSA/SHA-256
+    /// RSA/SHA-256.
     Rsasha256 = 8,
-    /// RSA/SHA-512
+    /// RSA/SHA-512.
     Rsasha512 = 10,
-    /// ECDSA Curve P-256 with SHA-256
+    /// ECDSA Curve P-256 with SHA-256.
     EcdsaP256Sha256 = 13,
-    /// ECDSA Curve P-384 with SHA-384
+    /// ECDSA Curve P-384 with SHA-384.
     EcdsaP384Sha384 = 14,
-    /// Ed25519
+    /// Ed25519.
     Ed25519 = 15,
-    /// Ed448
+    /// Ed448.
     Ed448 = 16,
 }
 
 impl DnssecAlgorithm {
-    /// Convert from DNSSEC algorithm number
+    /// Convert from a DNSSEC algorithm number.
+    #[must_use]
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             5 => Some(Self::Rsasha1),
@@ -56,78 +57,81 @@ impl DnssecAlgorithm {
         }
     }
 
-    /// Returns true if this algorithm is supported for constant-time verification
+    /// Returns `true` if this algorithm is supported for constant-time verification.
+    #[must_use]
     pub fn is_ct_supported(self) -> bool {
         matches!(
             self,
-            Self::Rsasha256
-                | Self::Rsasha512
-                | Self::EcdsaP256Sha256
-                | Self::EcdsaP384Sha384
-                | Self::Ed25519
+            Self::Rsasha256 | Self::Rsasha512 | Self::EcdsaP256Sha256 | Self::Ed25519
         )
     }
 }
 
-/// A DNSSEC signature with its associated algorithm and data
+/// A DNSSEC signature with its associated algorithm and public key.
 #[derive(Debug, Clone)]
 pub struct DnssecSignature {
-    /// Algorithm used for signing
+    /// Algorithm used for signing.
     pub algorithm: DnssecAlgorithm,
-    /// The raw signature bytes
+    /// The raw signature bytes.
     pub signature: Bytes,
-    /// The signer's DNSKEY (public key portion)
+    /// The signer's DNSKEY (public key portion).
     pub public_key: Bytes,
 }
 
-/// The data to be verified (RRset + RRSIG header)
+/// The data to be verified (`RRset` + RRSIG header).
 #[derive(Debug, Clone)]
 pub struct SignedData {
-    /// The canonical form of the RRset being verified
+    /// The canonical form of the `RRset` being verified.
     pub rrset_data: Bytes,
-    /// The RRSIG rdata (excluding the signature itself)
+    /// The RRSIG rdata (excluding the signature itself).
     pub rrsig_header: Bytes,
 }
 
-/// Result of a constant-time verification operation
+/// Result of a constant-time verification operation.
 ///
 /// This type uses constant-time operations to prevent leaking
 /// information about the verification result through timing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CtVerificationResult {
-    /// 1 if verification succeeded, 0 if it failed
-    /// Stored as u8 to enable constant-time operations
+    /// 1 if verification succeeded, 0 if it failed.
+    ///
+    /// Stored as `u8` to enable constant-time operations.
     value: u8,
 }
 
 impl CtVerificationResult {
-    /// Create a successful result
+    /// Create a successful result.
+    #[must_use]
     pub const fn success() -> Self {
         Self { value: 1 }
     }
 
-    /// Create a failed result
+    /// Create a failed result.
+    #[must_use]
     pub const fn failure() -> Self {
         Self { value: 0 }
     }
 
-    /// Returns true if verification succeeded
+    /// Returns `true` if verification succeeded.
     ///
     /// Note: This method itself is NOT constant-time by design,
     /// as it's meant to be called after all timing-sensitive
     /// operations are complete.
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         self.value == 1
     }
 
-    /// Constant-time OR: returns success if either self or other is success
+    /// Constant-time OR: returns success if either `self` or `other` is success.
+    #[must_use]
     pub fn ct_or(self, other: Self) -> Self {
         Self {
             value: self.value | other.value,
         }
     }
 
-    /// Constant-time AND: returns success only if both self and other are success
+    /// Constant-time AND: returns success only if both `self` and `other` are success.
+    #[must_use]
     pub fn ct_and(self, other: Self) -> Self {
         Self {
             value: self.value & other.value,
@@ -141,14 +145,15 @@ impl ConstantTimeEq for CtVerificationResult {
     }
 }
 
-/// Constant-time comparison of two byte slices
+/// Constant-time comparison of two byte slices.
 ///
-/// Returns CtVerificationResult::success() if equal, failure() otherwise.
+/// Returns [`CtVerificationResult::success()`] if equal, [`CtVerificationResult::failure()`] otherwise.
 /// Execution time is independent of the content of the slices.
+#[must_use]
 pub fn ct_slice_compare(a: &[u8], b: &[u8]) -> CtVerificationResult {
     if a.len() != b.len() {
-        // Still do constant-time work to avoid leaking length info
-        // In practice, DNSSEC signatures have fixed lengths per algorithm
+        // DNSSEC signatures have fixed lengths per algorithm,
+        // so length mismatch always means failure.
         return CtVerificationResult::failure();
     }
 
@@ -158,11 +163,12 @@ pub fn ct_slice_compare(a: &[u8], b: &[u8]) -> CtVerificationResult {
     }
 }
 
-/// Prepare the signed data for DNSSEC verification
+/// Prepare the signed data for DNSSEC verification.
 ///
 /// This follows RFC 4034 Section 5.3.2:
-/// signed_data = RRSIG_RDATA | RR(i) * (i=1..n)
-/// where RRSIG_RDATA excludes the signature field
+/// `signed_data = RRSIG_RDATA | RR(i) * (i=1..n)`
+/// where `RRSIG_RDATA` excludes the signature field.
+#[must_use]
 pub fn prepare_signed_data(rrsig_header: &[u8], rrset: &[&[u8]]) -> Vec<u8> {
     let rrset_len: usize = rrset.iter().map(|r| r.len()).sum();
     let total_len: usize = rrsig_header.len() + rrset_len;
@@ -181,31 +187,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ct_slice_compare_equal() {
+    fn ct_slice_compare_returns_success_when_slices_equal() {
         let a = [1u8, 2, 3, 4];
         let b = [1u8, 2, 3, 4];
-        let result = ct_slice_compare(&a, &b);
-        assert!(result.is_valid());
+        assert!(ct_slice_compare(&a, &b).is_valid());
     }
 
     #[test]
-    fn test_ct_slice_compare_different() {
+    fn ct_slice_compare_returns_failure_when_slices_differ() {
         let a = [1u8, 2, 3, 4];
         let b = [1u8, 2, 3, 5];
-        let result = ct_slice_compare(&a, &b);
-        assert!(!result.is_valid());
+        assert!(!ct_slice_compare(&a, &b).is_valid());
     }
 
     #[test]
-    fn test_ct_slice_compare_different_length() {
+    fn ct_slice_compare_returns_failure_when_lengths_differ() {
         let a = [1u8, 2, 3, 4];
         let b = [1u8, 2, 3];
-        let result = ct_slice_compare(&a, &b);
-        assert!(!result.is_valid());
+        assert!(!ct_slice_compare(&a, &b).is_valid());
     }
 
     #[test]
-    fn test_verification_result_combinators() {
+    fn ct_or_returns_success_when_either_is_success() {
         let s = CtVerificationResult::success();
         let f = CtVerificationResult::failure();
 
@@ -213,6 +216,12 @@ mod tests {
         assert!(s.ct_or(f).is_valid());
         assert!(f.ct_or(s).is_valid());
         assert!(!f.ct_or(f).is_valid());
+    }
+
+    #[test]
+    fn ct_and_returns_success_when_both_are_success() {
+        let s = CtVerificationResult::success();
+        let f = CtVerificationResult::failure();
 
         assert!(s.ct_and(s).is_valid());
         assert!(!s.ct_and(f).is_valid());
@@ -221,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_signed_data() {
+    fn prepare_signed_data_concatenates_header_and_records() {
         let header = b"header";
         let rr1 = b"rr1";
         let rr2 = b"rr2";
@@ -231,9 +240,15 @@ mod tests {
     }
 
     #[test]
-    fn test_algorithm_from_u8() {
-        assert_eq!(DnssecAlgorithm::from_u8(8), Some(DnssecAlgorithm::Rsasha256));
-        assert_eq!(DnssecAlgorithm::from_u8(13), Some(DnssecAlgorithm::EcdsaP256Sha256));
+    fn from_u8_returns_correct_algorithm() {
+        assert_eq!(
+            DnssecAlgorithm::from_u8(8),
+            Some(DnssecAlgorithm::Rsasha256)
+        );
+        assert_eq!(
+            DnssecAlgorithm::from_u8(13),
+            Some(DnssecAlgorithm::EcdsaP256Sha256)
+        );
         assert_eq!(DnssecAlgorithm::from_u8(15), Some(DnssecAlgorithm::Ed25519));
         assert_eq!(DnssecAlgorithm::from_u8(99), None);
     }
