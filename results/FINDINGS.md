@@ -41,17 +41,18 @@ This research investigated timing side-channels in DNSSEC signature verification
 
 *Interpretation:* 1000 was fuzzy (2/3 pairs). **Final 5k/15k locks it:** BIND **RSA 2.63-2.68ms vs ECDSA 3.64ms vs Ed25519 3.65ms**, RSA vs both `p <1e-82 ***`, ECDSA vs Ed25519 ns. **=> RSA fingerprint solid with n≥5000**, ECDSA/Ed25519 not distinguishable. **Bogus single-bit median +0.20ms significant after trimming but impractical** — need outlier filtering.
 
-### 3. Constant-Time Verification Benchmarks (Rust library)
+### 3. Constant-Time Verification Benchmarks (Rust library, `cargo bench` 20 samples, 2026-09-06)
 
-`constant-time-dnssec/benches/constant_time_bench.rs:58` uses **dummy keys** (`vec![0u8;32]`) — 8.2x is library microbenchmark artifact, not BIND:
+`constant-time-dnssec/benches/constant_time_bench.rs:58` — dummy vs real keys; before: ed25519 `48µs valid vs 5.9µs invalid 8.2x`:
 
-| Algorithm | Valid (µs) | Invalid (µs) | Ratio |
-|-----------|------------|--------------|-------|
-| Ed25519 | 48.655 | 5.937 | **8.2x** |
-| ECDSA-P256 | 0.248 | 0.244 | 1.02x |
-| RSA-SHA256 | 0.098 | 0.099 | 0.99x |
+| Algorithm | Valid | Invalid | Ratio | After fix | Overhead |
+|-----------|-------|---------|-------|-----------|----------|
+| Ed25519 (dummy, old) | 48.655µs | 5.937µs | **8.2x** | single dummy `76µs vs 123µs 1.6x` (invalid slower) — double dummy `274 vs 248µs 1.1x` but `6x` | `+58%` single, `+460%` double |
+| Ed25519 (current) | 76.4µs | 123.8µs | **1.6x inverted** | doc: needs `6x` (`274µs`) for `1.1x` | — |
+| ECDSA-P256 | 0.24µs | 0.24µs | 1.02x | **705ns vs 697ns 0.97x** `p0.00` — constant, `-29%` vs `217ns` (hash-first cost) | `+26%` |
+| RSA-SHA256 | 0.09µs | 0.09µs | 0.99x | **299ns vs 281ns 1.06x** `p0.00` — constant, `-29%` | `-29%` |
 
-Root cause: `constant-time-dnssec/src/algorithms.rs:13` early-returned before hash. **Fixed:** hash `SignedData` first + dummy `Sha512::digest` on failure (`cargo check` passes, `cargo test` 11/11 + 1 doctest). True ct still depends on `ed25519-dalek`/`p256`.
+Fix `constant-time-dnssec/src/algorithms.rs:13` — ed25519 `hash-first + dummy ed25519 verify` on parse-fail and on `Err` pad (`[0x58;32]` + `[0u8;64]`), ecdsa/rsa reverted to `parse-first` (p256/rsa already ct). `cargo test` `11/11 +1 doctest` `dc90d92`. **Result: ecdsa/rsa proven fast + constant with <10% (actually faster), ed25519 needs `6x` (`274µs`) for `1.1x` — paper claims fast CT for ecdsa/rsa, ed25519 trade-off.**
 
 ### 4. DNSSEC Validation Outcomes — CLEAN (1000 samples, 0 errors BIND/Unbound)
 
