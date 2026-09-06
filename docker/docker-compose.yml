@@ -48,8 +48,9 @@ services:
     image: cznic/knot-resolver:latest
     container_name: dnssec-knot
     volumes:
+      - ./knot-config/config.yaml:/etc/knot-resolver/config.yaml:ro
       - ./knot-config/config.lua:/etc/knot-resolver/config.lua
-      - ./trust-anchors.txt:/etc/knot-resolver/trust-anchors.txt:ro
+      - ./trust-anchors:/etc/knot-resolver/trust-anchors:ro
     ports:
       - "15356:53/udp"
       - "15356:53/tcp"

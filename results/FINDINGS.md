@@ -3,56 +3,45 @@
 ## Executive Summary
 
 This research investigated timing side-channels in DNSSEC signature verification.
-**Docker measurement now succeeds: BIND + Unbound return 0 errors for all 7 outcomes** (500 samples each, `results/raw_timings.csv:1` 7000 rows). Knot Resolver still EOF (config bug). Previous 99% error rate was due to unsigned bogus/expired zones — now fixed via `docker/zones/setup_zones.sh:96` (bogus signed+corrupted, expired 2020 dates).
+**Docker measurement now succeeds: BIND + Unbound 0 errors for all 7 outcomes** (1000 samples each, `results/raw_timings.csv:1` 21000 rows, `results/timing_stats.csv:1`). Knot partially up (valid-rsa 429/1000, others 1-6/1000, trust-anchor refresh fails). Previous 99% error rate was unsigned bogus/expired — now fixed via `docker/zones/setup_zones.sh:96` + `docker/knot-config/config.yaml:1`.
 
 ## Key Findings
 
-### 1. Timing Differences Between DNSSEC Algorithms (localhost TCP, 500 samples)
+### 1. Timing Differences Between DNSSEC Algorithms (localhost TCP, 1000 samples)
 
 **BIND 9.20 (`docker/bind-resolver/named.conf:1`, cache 0):**
 
 | Outcome | N | Mean (ms) | Median (ms) | Std Dev | P5-P95 (ms) |
 |---------|---|-----------|-------------|---------|-------------|
-| valid-rsa | 500 | 4.746 | 3.417 | 4.361 | 2.352-11.900 |
-| valid-ecdsa | 500 | 4.007 | 3.186 | 3.130 | 2.268-7.954 |
-| valid-ed25519 | 500 | 3.386 | 2.929 | 1.709 | 2.240-6.156 |
-| bogus (SERVFAIL) | 500 | 10.245 | 3.239 | 72.483 | 2.242-12.736 |
-| expired | 500 | 5.502 | 2.801 | 27.744 | 2.152-6.754 |
-| unsigned | 500 | 4.179 | 2.681 | 18.050 | 1.756-5.348 |
-| nsec3 | 500 | 3.100 | 2.196 | 3.208 | 1.559-7.435 |
+| valid-rsa | 1000 | 3.692 | 3.232 | 2.067 | 2.498-6.160 |
+| valid-ecdsa | 1000 | 3.096 | 2.675 | 1.780 | 2.197-5.073 |
+| valid-ed25519 | 1000 | 3.440 | 2.831 | 2.732 | 2.233-5.967 |
+| bogus (SERVFAIL) | 1000 | 7.874 | 2.656 | 94.308 | 2.192-4.531 |
+| expired | 1000 | 13.967 | 2.780 | 148.374 | 1.916-5.319 |
+| unsigned | 1000 | 8.472 | 2.808 | 113.385 | 2.301-5.100 |
+| nsec3 | 1000 | 2.226 | 1.966 | 1.160 | 1.673-3.428 |
 
 **Unbound (`docker/unbound-config/unbound.conf:1`, cache 0):**
 
-| Outcome | N | Mean (ms) | Median (ms) | Std Dev |
-|---------|---|-----------|-------------|---------|
-| valid-rsa | 500 | 2.736 | 1.972 | 2.734 |
-| valid-ecdsa | 500 | 2.901 | 2.437 | 1.900 |
-| valid-ed25519 | 500 | 2.413 | 2.020 | 1.546 |
-| bogus | 500 | 2.508 | 2.056 | 1.779 |
-| expired | 500 | 2.835 | 2.093 | 3.024 |
-| unsigned | 500 | 3.896 | 2.655 | 4.077 |
-| nsec3 | 500 | 5.498 | 4.016 | 4.939 |
+| Outcome | N | Mean (ms) | Median (ms) | Std Dev | P5-P95 (ms) |
+|---------|---|-----------|-------------|---------|-------------|
+| valid-rsa | 1000 | 2.283 | 2.004 | 1.459 | 1.623-3.407 |
+| valid-ecdsa | 1000 | 2.251 | 1.947 | 1.557 | 1.669-3.338 |
+| valid-ed25519 | 1000 | 2.284 | 2.017 | 1.699 | 1.711-3.052 |
+| bogus | 1000 | 2.666 | 2.131 | 2.520 | 1.752-4.815 |
+| expired | 1000 | 2.585 | 2.297 | 1.382 | 1.843-3.989 |
+| unsigned | 1000 | 2.427 | 2.194 | 1.155 | 1.820-3.486 |
+| nsec3 | 1000 | 3.808 | 3.224 | 2.620 | 2.711-6.046 |
 
 **Statistical significance (`results/analysis_report.txt:1`, Welch's t-test, BIND):**
-- valid-rsa vs valid-ed25519: t=6.49, p=1.68e-10, d=0.411 **\*\*\***
-- valid-ecdsa vs valid-ed25519: t=3.89, p=1.1e-04, d=0.246 **\*\*\***
-- valid-rsa vs nsec3: t=6.80, p=1.9e-11, d=0.430 **\*\*\***
-- valid vs bogus/expired/unsigned: **not significant** (p 0.09-0.54, d -0.13 to 0.04) — bogus mean inflated by outliers (stdev 72ms), median only 3.24ms vs 3.42ms for rsa.
-- Unbound shows similar valid-algorithm differences but smaller; bogus not slower (2.51ms vs 2.74ms).
+- valid-rsa vs valid-ecdsa: t=6.90 p=6.76e-12 d=0.309 **\*\*\***
+- valid-rsa vs valid-ed25519: t=2.32 p=2.03e-02 d=0.104 **\***
+- valid-ecdsa vs valid-ed25519: t=-3.34 p=8.67e-04 d=-0.149 **\*\*\***
+- valid-rsa vs nsec3: t=19.5 p=2.5e-76 d=0.874 **\*\*\***
+- valid vs bogus/expired/unsigned: p 0.16-0.02, but mean inflated by outliers (stdev 94-148ms), median 2.66ms ≈ valid 3.23ms — **no clean bogus oracle**
+- Unbound: valid algorithms indistinguishable (p0.64), but nsec3 vs valid p6e-54 d=-0.71 **\*\*\*** — NSEC3 fingerprint, not algorithm.
 
-*Interpretation:* Algorithm fingerprinting (RSA vs Ed25519) holds for **valid** signatures on BIND. **Bogus SERVFAIL does not give a clean timing oracle** with current corrupted-RRSIG method — tail latency high but median not distinguishable. Need better bogus construction (flip single bit in RRSIG vs full corruption) and larger n (see power analysis: bogus vs valid needs 2267 samples).
-
-### 2. Effect Sizes (Cohen's d)
-
-| Comparison (BIND) | Cohen's d | Interpretation |
-|-------------------|-----------|----------------|
-| RSA vs ECDSA | 0.195 | Small |
-| RSA vs Ed25519 | 0.411 | Medium |
-| ECDSA vs Ed25519 | 0.246 | Small-Medium |
-| RSA vs NSEC3 | 0.430 | Medium |
-| Valid vs Bogus | -0.107 | Negligible (was -1.32 with n=2 bug) |
-
-Power analysis (`results/analysis_report.txt:30`): 686 samples needed for RSA vs ECDSA (currently 500), 155 for RSA vs Ed25519 (sufficient).
+*Interpretation:* BIND shows algorithm fingerprint for **valid** (RSA median 3.23ms > Ed25519 2.83ms > ECDSA 2.67ms, all p<0.02). Unbound does not. **Bogus SERVFAIL not distinguishable by median** — tail-driven mean only. Need single-bit RRSIG flip and n≥2000 (power: 273 for rsa vs ecdsa, 2411 for rsa vs ed25519, 6618 for rsa vs bogus).
 
 ### 3. Constant-Time Verification Benchmarks (Rust library)
 
