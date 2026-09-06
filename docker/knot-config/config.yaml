@@ -1,18 +1,7 @@
 workers: 1
-# cache disabled via small ttl, keep default storage
 network:
   listen:
     - interface: 0.0.0.0@53
-dnssec:
-  trust-anchors-files:
-    - file: /etc/knot-resolver/trust-anchors/test-valid-rsa.example
-      read-only: true
-    - file: /etc/knot-resolver/trust-anchors/test-valid-ecdsa.example
-      read-only: true
-    - file: /etc/knot-resolver/trust-anchors/test-valid-ed25519.example
-      read-only: true
-    - file: /etc/knot-resolver/trust-anchors/test-nsec3.example
-      read-only: true
 forward:
   - subtree: "."
     servers: [172.20.0.10]

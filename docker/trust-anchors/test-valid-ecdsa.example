@@ -1,1 +1,1 @@
-test-valid-ecdsa.example. 300 IN DNSKEY 257 3 13 q9id6f56F2ss9QjZ2hBtj+5qvDMFVdI68BESkAzxKSYX7pSYr5u/agE14yFKMR8rxl0aBPWCh/KanjagOWt6zw==
+test-valid-ecdsa.example. 300 IN DNSKEY 257 3 13 JWLq9zRMtAtl0dcyP7MiNJUzCvmIfwVdS5uxF26UPnr5xIgb+PhPRZn8+/99i0qLLjfaQ3YT8gPg2qtj4x//zg==
