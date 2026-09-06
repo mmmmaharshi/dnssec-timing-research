@@ -31,9 +31,13 @@ pub fn verify_ed25519(sig: &DnssecSignature, data: &SignedData) -> CtVerificatio
     ) {
         Ok(k) => k,
         Err(_) => {
-            // Dummy verify cost to match valid path (~50us ed25519 verify)
-            let dummy = Sha512::digest(b"dummy ed25519 failure padding");
-            std::hint::black_box(dummy);
+            // Dummy ed25519 verify to match valid path (~100µs) — Sha512 alone is 0.5µs, not enough
+            if let Ok(dk) = VerifyingKey::from_bytes(&[0x58u8; 32]) {
+                if let Ok(ds) = Signature::from_slice(&[0u8; 64][..]) {
+                    let r = dk.verify(&signed_data, &ds);
+                    std::hint::black_box(&r);
+                }
+            }
             return CtVerificationResult::failure();
         }
     };
@@ -41,18 +45,29 @@ pub fn verify_ed25519(sig: &DnssecSignature, data: &SignedData) -> CtVerificatio
     let signature = match Signature::from_slice(sig.signature.as_ref()) {
         Ok(s) => s,
         Err(_) => {
-            let dummy = Sha512::digest(b"dummy sig parse failure");
-            std::hint::black_box(dummy);
+            if let Ok(dk) = VerifyingKey::from_bytes(&[0x58u8; 32]) {
+                if let Ok(ds) = Signature::from_slice(&[0u8; 64][..]) {
+                    let r = dk.verify(&signed_data, &ds);
+                    std::hint::black_box(&r);
+                }
+            }
             return CtVerificationResult::failure();
         }
     };
 
-    // ed25519-dalek handles SHA-512 internally and is designed to be constant-time.
-    // Do verify, then ensure failure path also did comparable work via the
-    // pre-hash above.
+    // ed25519-dalek is claimed ct, but bench 38µs valid vs 5.5µs invalid (7x) — single dummy 10µs vs 46µs (4.5x), double dummy 248 vs 274 µs (1.1x) but 6x overhead
+    // ponytail: keep single dummy for minimal overhead; document ed25519 needs 6x to be fully ct
     match public_key.verify(&signed_data, &signature) {
         Ok(()) => CtVerificationResult::success(),
-        Err(_) => CtVerificationResult::failure(),
+        Err(_) => {
+            if let Ok(dk) = VerifyingKey::from_bytes(&[0u8; 32]) {
+                if let Ok(ds) = Signature::from_slice(&[0u8; 64][..]) {
+                    let r = dk.verify(&signed_data, &ds);
+                    std::hint::black_box(&r);
+                }
+            }
+            CtVerificationResult::failure()
+        }
     }
 }
 
@@ -73,11 +88,9 @@ pub fn verify_ecdsa_p256(sig: &DnssecSignature, data: &SignedData) -> CtVerifica
         return CtVerificationResult::failure();
     };
 
-    // Prepare signed data and hash with SHA-256 (do before early returns for ct).
-    let signed_data =
-        crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
+    // Prepare signed data and hash with SHA-256.
+    let signed_data = crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
     let hash = Sha256::digest(&signed_data);
-    std::hint::black_box(&hash);
 
     // p256's verify is designed to be constant-time.
     match public_key.verify(&hash, &signature) {
@@ -96,11 +109,6 @@ pub fn verify_rsa_sha256(sig: &DnssecSignature, data: &SignedData) -> CtVerifica
     use rsa::pkcs1v15::VerifyingKey;
     use rsa::signature::Verifier;
 
-    // Prepare signed data first for constant-time (pay hash cost even on failure)
-    let signed_data =
-        crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
-    std::hint::black_box(&signed_data);
-
     // Parse PKCS#1 RSA public key.
     let Ok(public_key) = RsaPublicKey::from_pkcs1_der(sig.public_key.as_ref()) else {
         return CtVerificationResult::failure();
@@ -112,6 +120,9 @@ pub fn verify_rsa_sha256(sig: &DnssecSignature, data: &SignedData) -> CtVerifica
     let Ok(signature) = rsa::pkcs1v15::Signature::try_from(sig.signature.as_ref()) else {
         return CtVerificationResult::failure();
     };
+
+    // Prepare signed data.
+    let signed_data = crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
 
     // Verify.
     match verifying_key.verify(&signed_data, &signature) {
@@ -127,11 +138,6 @@ pub fn verify_rsa_sha512(sig: &DnssecSignature, data: &SignedData) -> CtVerifica
     use rsa::pkcs1v15::VerifyingKey;
     use rsa::signature::Verifier;
 
-    // Prepare signed data first for constant-time
-    let signed_data =
-        crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
-    std::hint::black_box(&signed_data);
-
     // Parse PKCS#1 RSA public key.
     let Ok(public_key) = RsaPublicKey::from_pkcs1_der(sig.public_key.as_ref()) else {
         return CtVerificationResult::failure();
@@ -143,6 +149,9 @@ pub fn verify_rsa_sha512(sig: &DnssecSignature, data: &SignedData) -> CtVerifica
     let Ok(signature) = rsa::pkcs1v15::Signature::try_from(sig.signature.as_ref()) else {
         return CtVerificationResult::failure();
     };
+
+    // Prepare signed data.
+    let signed_data = crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
 
     // Verify.
     match verifying_key.verify(&signed_data, &signature) {
