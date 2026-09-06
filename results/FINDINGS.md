@@ -42,7 +42,7 @@ This research investigated timing side-channels in DNSSEC signature verification
 - Unbound nsec3 vs valid: p2.8e-31 d=-0.53 **\*\*\*** — NSEC3 distinct (slowest on Unbound, fastest on BIND)
 - Valid vs bogus/expired: BIND p0.02 * but d≈-0.10 (tiny), median bogus 2.497 ≈ valid 2.278 — **no reliable bogus oracle, tail-driven mean only (stdev 77ms)**
 
-*Interpretation:* With clean single-KSK zones, BIND shows **ECDSA slowest (3.03ms) > Ed25519 2.65ms > RSA 2.59ms**, only RSA vs ECDSA and ECDSA vs Ed25519 significant. Unbound shows **Ed25519 fastest (1.78ms)**, but effects small (d 0.17). **Bogus not distinguishable by median** — needs single-bit RRSIG flip and n≥2493 (power: BIND rsa vs bogus needs 2493, rsa vs ecdsa 494, rsa vs ed25519 15463).
+*Interpretation:* With clean single-KSK zones, BIND shows **ECDSA slowest (3.03ms) > Ed25519 2.65ms > RSA 2.59ms**, only RSA vs ECDSA and ECDSA vs Ed25519 significant. Unbound shows **Ed25519 fastest (1.78ms)**, but effects small (d 0.17). **Bogus not distinguishable by median** — single-bit flip run `results_singlebit/bind_bogus.csv:1` (flip last byte of A RRSIG `flip_bogus2.py:1`, BIND `5000` samples: valid 2.78ms median 2.43ms vs bogus single-bit 14.77ms mean 2.60ms median, t=-5.03 p4.9e-07 but d driven by 168ms stdev outliers, median delta 0.17ms, **still not reliable** — need outlier filtering and n≥2493.
 
 ### 3. Constant-Time Verification Benchmarks (Rust library)
 
@@ -93,14 +93,15 @@ Root cause: `constant-time-dnssec/src/algorithms.rs:13` early-returned before ha
 5. **Real bogus:** Flip single bit in RRSIG signature, not whole block.
 6. **Library bench with real keys:** `cargo bench` with real KSK/ZSK.
 
-## Verification Done This Run (2026-09-06 14:14)
+## Verification Done This Run (2026-09-06 14:39)
 
 - `uv sync` — 6 packages
 - `cargo test` — 11/11 + 1 doctest pass
 - `docker compose -f docker/docker-compose.yml up -d --force-recreate` — 4 containers Up (auth 2m, bind 38s, unbound 38s healthy, knot 4s minimal)
 - Zones: single KSK per valid (KSKs 10232/31592/45181/45226), 6 signed zones incl. expired via `sed 2026->2020`, `Ktest-*.key:1` in `/var/cache/bind/zones:1`, trust anchors `docker/trust-anchors/*:1` synced
-- `uv run python harness/timing_harness.py --all --samples 1000 --output results` — BIND 7000/7000 ok (rsa 2.588ms...), Unbound 7000/7000 ok (rsa 1.925ms...), Knot 491/1000 rsa, 2/1000 ecdsa (minimal non-validating) — raw 21000 rows
+- `uv run python harness/timing_harness.py --all --samples 1000 --output results` — BIND 7000/7000 ok (rsa 2.588ms...), Unbound 7000/7000 ok (rsa 1.925ms...), Knot 491/1000 rsa — raw 21000 rows
 - `uv run python analysis/analyze_timings.py --input results/raw_timings.csv` — BIND rsa vs ecdsa p3.15e-07 ***, rsa vs ed25519 ns p0.359
-- `python -c "dns.query.tcp"` — BIND valid 0 AD true, bogus 2 AD false, Unbound valid 0 AD true; Knot minimal 2 (no AD) — expected for non-validating
-- `python -c "base64.b64decode"` — per-file DNSKEYs ok 260/64/32/260, continuous base64 (was space), DS 10232/31592/45181/45226 via `make_ds`
+- `python -c "dns.query.tcp"` — BIND valid 0 AD true, bogus 2 AD false (single-bit flip `flip_bogus2.py:1`), expired via `sed 2026->2020` timeout on BIND
+- `python -c "base64.b64decode"` — per-file DNSKEYs ok 260/64/32/260, continuous base64, DS 10232/31592/45181/45226 via `make_ds`
+- **Single-bit bogus** `docker/zones/test-bogus.example.zone.signed:1` flipped last byte of A RRSIG via `flip_bogus2.py:1` (base64 decode → `raw[-1] ^1` → re-encode, 308 B sig), `docker compose -f docker/docker-compose.yml up -d --force-recreate auth-server:1`, `uv run python harness/timing_harness.py --resolver bind --outcome valid-rsa/bogus --samples 5000 --output results_singlebit:1` — valid 5000 2.78ms median 2.43ms, bogus 4996 14.77ms mean 2.60ms median, stdev 168ms, errors 4, Welch `t=-5.03 p4.9e-07` but median delta 0.17ms → **still not reliable**, tail-driven
 - Knot `trust-anchors-files` still crashes `kresd:kresd0` even single DS 10232 — kept minimal `forward authoritative:true`
