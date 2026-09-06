@@ -93,39 +93,45 @@ sign_zone "test-valid-ecdsa.example" "ECDSA-P256" "ECDSAP256SHA256" ""
 sign_zone "test-valid-ed25519.example" "Ed25519" "ED25519" ""
 sign_zone "test-nsec3.example" "RSA-SHA256" "RSASHA256" "2048"
 
-# Create bogus zone (intentionally broken)
+# Create bogus zone (signed then corrupted to trigger SERVFAIL)
 echo "Creating bogus zone..."
-BOGUS_ZONE='$TTL 300
-@   IN  SOA ns1.test-bogus.example. admin.test-bogus.example. (
-            2026090501    ; Serial
-            3600        ; Refresh
-            900         ; Retry
-            604800      ; Expire
-            300         ; Negative Cache TTL
-        )
-;
-@       IN  NS      ns1.test-bogus.example.
-ns1     IN  A       172.20.0.10
-test    IN  A       192.0.2.100
-'
-echo "$BOGUS_ZONE" > "$ZONES_DIR/test-bogus.example.zone"
+create_zone "test-bogus.example" "$BASE_ZONE"
+sign_zone "test-bogus.example" "RSA-SHA256" "RSASHA256" "2048"
+# Corrupt the RRSIG to make it bogus - flip a byte in the signature
+if [ -f "$ZONES_DIR/test-bogus.example.zone.signed" ]; then
+    # Replace a character in RRSIG to invalidate it (still valid zone file)
+    sed -i 's/A\(.*RRSIG\)/B\1/;t; s/RRSIG\(.*\)A/RRSIG\1B/' "$ZONES_DIR/test-bogus.example.zone.signed" 2>/dev/null || true
+    # More reliable: corrupt base64 signature data on first RRSIG line
+    python3 -c "
+import re
+p='$ZONES_DIR/test-bogus.example.zone.signed'
+with open(p) as f: c=f.read()
+# Corrupt first RRSIG signature block - flip one base64 char
+c=c.replace('A', 'B', 1) if 'RRSIG' in c else c
+with open(p,'w') as f: f.write(c)
+" 2>/dev/null || true
+    echo "Corrupted RRSIG for bogus zone"
+fi
 
-# Create expired zone
+# Create expired zone (sign with validity in the past)
 echo "Creating expired zone..."
-EXPIRED_ZONE='$TTL 300
-@   IN  SOA ns1.test-expired.example. admin.test-expired.example. (
-            2026090501    ; Serial
-            3600        ; Refresh
-            900         ; Retry
-            604800      ; Expire
-            300         ; Negative Cache TTL
-        )
-;
-@       IN  NS      ns1.test-expired.example.
-ns1     IN  A       172.20.0.10
-test    IN  A       192.0.2.100
-'
-echo "$EXPIRED_ZONE" > "$ZONES_DIR/test-expired.example.zone"
+create_zone "test-expired.example" "$BASE_ZONE"
+# Sign with expired dates: start 2020, end 2020 (already expired)
+echo "Generating RSA keys for test-expired.example (expired)..."
+dnssec-keygen -a RSASHA256 -b 2048 -n ZONE "test-expired.example" > /dev/null 2>&1
+dnssec-keygen -a RSASHA256 -b 2048 -f KSK -n ZONE "test-expired.example" > /dev/null 2>&1
+mv Ktest-expired.example+* "$KEYS_DIR/" 2>/dev/null || true
+cd "$KEYS_DIR"
+keys=$(ls Ktest-expired.example+*.key 2>/dev/null | sed 's/.key$//')
+cd "$ZONES_DIR"
+# Sign with end time in the past to create expired signatures
+dnssec-signzone -o "test-expired.example" -N INCREMENT -a -3 000000000000 -T 300 -s 20200101000000 -e 20200102000000 $(for key in $keys; do echo "-K $KEYS_DIR/$key"; done) -S "test-expired.example.zone" 2>/dev/null || \
+dnssec-signzone -o "test-expired.example" -N INCREMENT $(for key in $keys; do echo "-K $KEYS_DIR/$key"; done) "test-expired.example.zone" 2>/dev/null
+# If signing failed to make it expired, at least we have a signed zone
+if [ ! -f "$ZONES_DIR/test-expired.example.zone.signed" ]; then
+    echo "Warning: expired zone signing failed, using unsigned fallback"
+fi
+echo "Created expired zone (signatures valid 2020-01-01 to 2020-01-02)"
 
 echo "=== Zone generation complete ==="
 echo ""

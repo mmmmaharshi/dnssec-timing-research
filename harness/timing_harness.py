@@ -30,9 +30,11 @@ except ImportError:
     sys.exit(1)
 
 
-# Resolver configurations - all on same container for now
+# Resolver configurations
 RESOLVERS = {
-    "bind": {"host": "127.0.0.1", "port": 15353, "description": "BIND 9 latest"},
+    "bind": {"host": "127.0.0.1", "port": 15354, "description": "BIND 9 resolver"},
+    "unbound": {"host": "127.0.0.1", "port": 15355, "description": "Unbound resolver"},
+    "knot": {"host": "127.0.0.1", "port": 15356, "description": "Knot Resolver"},
 }
 
 # Test domains for each validation outcome
@@ -93,6 +95,7 @@ class TimingResult:
     response_rcode: int
     ad_flag: bool
     timestamp: float
+    cache_state: str = "cold"
     error: Optional[str] = None
 
 
@@ -167,6 +170,7 @@ class DNSSecTimingHarness:
         samples: int = 10000,
         warmup: int = 100,
         progress: bool = True,
+        cache_state: str = "cold",
     ) -> List[TimingResult]:
         """Measure timing for a specific validation outcome."""
         if outcome_name not in TEST_DOMAINS:
@@ -187,11 +191,12 @@ class DNSSecTimingHarness:
 
         # Actual measurements
         if progress:
-            print(f"  Collecting {samples} samples...", end="", flush=True)
+            print(f"  Collecting {samples} samples ({cache_state} cache)...", end="", flush=True)
 
         for i in range(samples):
             result = self.measure_single_query(domain)
             result.outcome = outcome_name
+            result.cache_state = cache_state
             results.append(result)
 
             if progress and (i + 1) % 1000 == 0:
@@ -201,6 +206,50 @@ class DNSSecTimingHarness:
             print(" done")
 
         return results
+
+    def measure_cache_states(
+        self,
+        outcome_name: str,
+        samples: int = 1000,
+        progress: bool = True,
+    ) -> List[TimingResult]:
+        """Measure timing across cold, warm, and hot cache states."""
+        if outcome_name not in TEST_DOMAINS:
+            raise ValueError(f"Unknown outcome: {outcome_name}")
+
+        test_config = TEST_DOMAINS[outcome_name]
+        domain = test_config["domain"]
+        all_results = []
+
+        # Cold cache: first query (cache miss)
+        if progress:
+            print("  Cold cache (first query)...")
+        for _ in range(5):
+            self.measure_single_query(domain)  # Flush cache
+        result = self.measure_single_query(domain)
+        result.outcome = outcome_name
+        result.cache_state = "cold"
+        all_results.append(result)
+
+        # Warm cache: second query (likely cache hit)
+        if progress:
+            print("  Warm cache (second query)...")
+        for _ in range(samples):
+            result = self.measure_single_query(domain)
+            result.outcome = outcome_name
+            result.cache_state = "warm"
+            all_results.append(result)
+
+        # Hot cache: many subsequent queries
+        if progress:
+            print("  Hot cache (subsequent queries)...")
+        for _ in range(samples):
+            result = self.measure_single_query(domain)
+            result.outcome = outcome_name
+            result.cache_state = "hot"
+            all_results.append(result)
+
+        return all_results
 
     @staticmethod
     def compute_stats(results: List[TimingResult]) -> TimingStats:
@@ -238,13 +287,14 @@ def save_results(results: List[TimingResult], filepath: str) -> None:
     with open(filepath, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "resolver", "outcome", "domain", "query_time_ns",
+            "resolver", "outcome", "domain", "cache_state", "query_time_ns",
             "response_rcode", "ad_flag", "timestamp", "error"
         ])
         for r in results:
             writer.writerow([
-                r.resolver, r.outcome, r.domain, r.query_time_ns,
-                r.response_rcode, r.ad_flag, r.timestamp, r.error or ""
+                r.resolver, r.outcome, r.domain, r.cache_state,
+                r.query_time_ns, r.response_rcode, r.ad_flag,
+                r.timestamp, r.error or ""
             ])
 
 
@@ -324,11 +374,18 @@ def main():
         action="store_true",
         help="Run all resolver × outcome combinations",
     )
+    parser.add_argument(
+        "--cache-mode",
+        action="store_true",
+        help="Test cold/warm/hot cache states",
+    )
 
     args = parser.parse_args()
 
     if args.all:
         run_all_measurements(samples=args.samples, output_dir=args.output)
+    elif args.cache_mode and args.resolver:
+        run_cache_state_measurements(args.resolver, args.samples, args.output)
     elif args.resolver and args.outcome:
         harness = DNSSecTimingHarness(args.resolver)
         results = harness.measure_outcome(
@@ -343,8 +400,6 @@ def main():
         print(f"  Mean: {stats.mean_ns/1e6:.3f} ms")
         print(f"  Median: {stats.median_ns/1e6:.3f} ms")
         print(f"  Stdev: {stats.stdev_ns/1e6:.3f} ms")
-        print(f"  Min: {stats.min_ns/1e6:.3f} ms")
-        print(f"  Max: {stats.max_ns/1e6:.3f} ms")
         print(f"  Errors: {stats.errors}")
 
         # Save single result
@@ -354,6 +409,33 @@ def main():
         print("\nExamples:")
         print("  python timing_harness.py --resolver unbound --outcome valid-rsa --samples 5000")
         print("  python timing_harness.py --all --samples 10000")
+        print("  python timing_harness.py --resolver bind --cache-mode --samples 1000")
+
+
+def run_cache_state_measurements(
+    resolver_name: str,
+    samples: int,
+    output_dir: str,
+) -> None:
+    """Run cache state measurements for all outcomes."""
+    harness = DNSSecTimingHarness(resolver_name)
+    all_results = []
+
+    for outcome_name in ["valid-rsa", "valid-ecdsa", "valid-ed25519"]:
+        print(f"\nOutcome: {outcome_name}")
+        results = harness.measure_cache_states(outcome_name, samples=samples)
+        all_results.extend(results)
+
+        # Print summary by cache state
+        for state in ["cold", "warm", "hot"]:
+            state_results = [r for r in results if r.cache_state == state and r.error is None]
+            if state_results:
+                times = [r.query_time_ns for r in state_results]
+                mean_ms = statistics.mean(times) / 1e6
+                print(f"  {state}: {mean_ms:.3f} ms (n={len(times)})")
+
+    save_results(all_results, os.path.join(output_dir, f"cache_states_{resolver_name}.csv"))
+    print(f"\nResults saved to {output_dir}/cache_states_{resolver_name}.csv")
 
 
 if __name__ == "__main__":

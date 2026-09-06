@@ -1,8 +1,8 @@
 services:
-  # All-in-one DNS server for testing
-  dns-test:
+  # Authoritative DNS server with signed zones
+  auth-server:
     image: ubuntu/bind9:latest
-    container_name: dns-test
+    container_name: dnssec-auth
     volumes:
       - ./bind-config:/etc/bind
       - ./zones:/var/cache/bind/zones
@@ -12,6 +12,52 @@ services:
     networks:
       dns-test:
         ipv4_address: 172.20.0.10
+
+  # BIND resolver with DNSSEC validation
+  bind-resolver:
+    image: ubuntu/bind9:latest
+    container_name: dnssec-bind
+    volumes:
+      - ./bind-resolver:/etc/bind
+    ports:
+      - "15354:53/udp"
+      - "15354:53/tcp"
+    networks:
+      dns-test:
+        ipv4_address: 172.20.0.20
+    depends_on:
+      - auth-server
+
+  # Unbound resolver with DNSSEC validation
+  unbound-resolver:
+    image: mvance/unbound:latest
+    container_name: dnssec-unbound
+    volumes:
+      - ./unbound-config:/opt/unbound/etc/unbound
+    ports:
+      - "15355:53/udp"
+      - "15355:53/tcp"
+    networks:
+      dns-test:
+        ipv4_address: 172.20.0.30
+    depends_on:
+      - auth-server
+
+  # Knot Resolver
+  knot-resolver:
+    image: cznic/knot-resolver:latest
+    container_name: dnssec-knot
+    volumes:
+      - ./knot-config/config.lua:/etc/knot-resolver/config.lua
+      - ./trust-anchors.txt:/etc/knot-resolver/trust-anchors.txt:ro
+    ports:
+      - "15356:53/udp"
+      - "15356:53/tcp"
+    networks:
+      dns-test:
+        ipv4_address: 172.20.0.40
+    depends_on:
+      - auth-server
 
 networks:
   dns-test:
