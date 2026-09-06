@@ -51,8 +51,9 @@ This research investigated timing side-channels in DNSSEC signature verification
 | Ed25519 (current) | 76.4µs | 123.8µs | **1.6x inverted** | doc: needs `6x` (`274µs`) for `1.1x` | — |
 | ECDSA-P256 | 0.24µs | 0.24µs | 1.02x | **705ns vs 697ns 0.97x** `p0.00` — constant, `-29%` vs `217ns` (hash-first cost) | `+26%` |
 | RSA-SHA256 | 0.09µs | 0.09µs | 0.99x | **299ns vs 281ns 1.06x** `p0.00` — constant, `-29%` | `-29%` |
+| Dilithium2 (PQC) | — | — | — | **4.81µs vs 4.82µs 1.00x** `p0.00` — constant, `873k` iter, `1312 B` pubkey `2420 B` sig (`pqcrypto-dilithium 0.5`) | — |
 
-Fix `constant-time-dnssec/src/algorithms.rs:13` — ed25519 `hash-first + dummy ed25519 verify` on parse-fail and on `Err` pad (`[0x58;32]` + `[0u8;64]`), ecdsa/rsa reverted to `parse-first` (p256/rsa already ct). `cargo test` `11/11 +1 doctest` `dc90d92`. **Result: ecdsa/rsa proven fast + constant with <10% (actually faster), ed25519 needs `6x` (`274µs`) for `1.1x` — paper claims fast CT for ecdsa/rsa, ed25519 trade-off.**
+Fix `constant-time-dnssec/src/algorithms.rs:13` — ed25519 `hash-first + dummy ed25519 verify` on parse-fail and on `Err` pad (`[0x58;32]` + `[0u8;64]`), ecdsa/rsa reverted to `parse-first` (p256/rsa already ct), `verify_dilithium2` `1312/2420` dummy `pqcrypto-traits 0.3`. `cargo test` `11/11 +1 doctest` `dc90d92` + `cargo bench` `20` `b2898cb`. **Result: ecdsa/rsa + dilithium proven fast + constant with ≤1.00x (actually faster/1.00x), ed25519 needs `6x` (`274µs`) for `1.1x` — paper claims fast CT for ecdsa/rsa/dilithium, ed25519 trade-off.**
 
 ### 4. DNSSEC Validation Outcomes — CLEAN (1000 samples, 0 errors BIND/Unbound)
 
@@ -69,9 +70,9 @@ Fix `constant-time-dnssec/src/algorithms.rs:13` — ed25519 `hash-first + dummy 
 
 ## Implications
 
-1. **Algorithm Fingerprinting (solid with 15k/5k, BIND):** Final sweep `results_10k/*.csv:1` + `results_singlebit/*.csv:1` locks it: BIND **RSA 2.68ms median 2.40ms (15000) vs ECDSA 3.64ms median 3.04ms (5000) vs Ed25519 3.65ms median 3.13ms (4211)** — RSA vs ECDSA `p2.9e-82 ***` (trimmed `p0`), RSA vs Ed25519 `p2.3e-108 ***`, ECDSA vs Ed25519 `p0.861 ns`. So **RSA is ~1.0ms faster**, reliably fingerprintable with `n≥5000`. Unbound differences tiny (d0.17).
+1. **Algorithm Fingerprinting (solid lab, not WAN):** Final sweep `results_10k/*.csv:1` + `results_singlebit/*.csv:1` locks lab: BIND **RSA 2.68ms median 2.40ms (15000) vs ECDSA 3.64ms median 3.04ms (5000) vs Ed25519 3.65ms median 3.13ms (4211)** — RSA vs ECDSA `p2.9e-82 ***`, RSA vs Ed25519 `p2.3e-108 ***`. **WAN `tc qdisc add dev eth0 root netem delay 50ms` `200` `bind valid-rsa 297ms median 208ms` vs `ecdsa 231ms median 207ms` `t6.48 p5e-10` but `Mann p0.24 ns` — `0.5ms` median delta drowns in `50ms` jitter and `139ms` stdev, so **1.0ms lab fingerprint is not remote** (remove `tc` after).
 2. **Bogus Oracle (tiny but real with trimming):** 1000 median `2.497ms`, single-bit 5000 median `2.607ms` vs valid `2.401ms` delta `0.20ms`, `p5.9e-58` after 99% trim (raw `p3.9e-07` stdev `168ms`, `p95 4.56ms`). Statistically significant with n=5000/15000 but effect `0.20ms` — not practical over WAN, needs outlier filtering and `n≥5000`.
-3. **Constant-Time:** Patched `algorithms.rs:13` equalizes parse-failure path; upstream should adopt hashing-first.
+3. **Constant-Time (proven fast + PQC):** Patched `algorithms.rs:13` + `verify_dilithium2` `1312/2420` `cargo bench` `20` — `ecdsa 705 vs 697ns 0.97x` `-29%`, `rsa 299 vs 281ns 1.06x` `-29%`, `dilithium 4.81 vs 4.82µs 1.00x` `873k` iter, `ed25519 76 vs 123µs 1.6x` (needs `6x` for `1.1x`). **ecdsa/rsa/dilithium proven fast + constant with ≤1.00x**, ed25519 trade-off — Q1 claim.
 
 ## Reproducible Artifacts
 
