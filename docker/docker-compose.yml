@@ -3,6 +3,9 @@ services:
   auth-server:
     image: ubuntu/bind9:latest
     container_name: dnssec-auth
+    privileged: true
+    cap_add:
+      - NET_ADMIN
     volumes:
       - ./bind-config:/etc/bind
       - ./zones:/var/cache/bind/zones
@@ -17,6 +20,9 @@ services:
   bind-resolver:
     image: ubuntu/bind9:latest
     container_name: dnssec-bind
+    privileged: true
+    cap_add:
+      - NET_ADMIN
     volumes:
       - ./bind-resolver:/etc/bind
     ports:

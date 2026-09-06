@@ -39,6 +39,8 @@ pub enum DnssecAlgorithm {
     Ed25519 = 15,
     /// Ed448.
     Ed448 = 16,
+    /// Dilithium2 (PQC, not IANA, for Q1 scale demo).
+    Dilithium2 = 17,
 }
 
 impl DnssecAlgorithm {
@@ -53,6 +55,7 @@ impl DnssecAlgorithm {
             14 => Some(Self::EcdsaP384Sha384),
             15 => Some(Self::Ed25519),
             16 => Some(Self::Ed448),
+            17 => Some(Self::Dilithium2),
             _ => None,
         }
     }
@@ -62,7 +65,11 @@ impl DnssecAlgorithm {
     pub fn is_ct_supported(self) -> bool {
         matches!(
             self,
-            Self::Rsasha256 | Self::Rsasha512 | Self::EcdsaP256Sha256 | Self::Ed25519
+            Self::Rsasha256
+                | Self::Rsasha512
+                | Self::EcdsaP256Sha256
+                | Self::Ed25519
+                | Self::Dilithium2
         )
     }
 }

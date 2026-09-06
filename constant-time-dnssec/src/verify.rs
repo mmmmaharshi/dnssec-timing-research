@@ -42,6 +42,7 @@ pub fn verify_signature(sig: &DnssecSignature, data: &SignedData) -> Verificatio
         crate::DnssecAlgorithm::EcdsaP256Sha256 => algorithms::verify_ecdsa_p256(sig, data),
         crate::DnssecAlgorithm::Rsasha256 => algorithms::verify_rsa_sha256(sig, data),
         crate::DnssecAlgorithm::Rsasha512 => algorithms::verify_rsa_sha512(sig, data),
+        crate::DnssecAlgorithm::Dilithium2 => algorithms::verify_dilithium2(sig, data),
         // Unsupported algorithms return failure.
         _ => CtVerificationResult::failure(),
     }

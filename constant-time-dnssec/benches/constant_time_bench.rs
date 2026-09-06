@@ -38,6 +38,13 @@ fn test_signature(algorithm: DnssecAlgorithm, valid: bool) -> DnssecSignature {
                 (vec![0xffu8; 256], vec![0x30u8; 256])
             }
         }
+        DnssecAlgorithm::Dilithium2 => {
+            if valid {
+                (vec![0u8; 2420], vec![0u8; 1312])
+            } else {
+                (vec![0xffu8; 2420], vec![0u8; 1312])
+            }
+        }
         _ => (vec![0u8; 64], vec![0u8; 64]),
     };
 
@@ -127,6 +134,28 @@ fn bench_rsa_sha256_invalid(c: &mut Criterion) {
     });
 }
 
+fn bench_dilithium2_valid(c: &mut Criterion) {
+    let sig = test_signature(DnssecAlgorithm::Dilithium2, true);
+    let data = test_data();
+    c.bench_function("dilithium2_valid", |b| {
+        b.iter(|| {
+            let result = verify_signature(black_box(&sig), black_box(&data));
+            black_box(result);
+        })
+    });
+}
+
+fn bench_dilithium2_invalid(c: &mut Criterion) {
+    let sig = test_signature(DnssecAlgorithm::Dilithium2, false);
+    let data = test_data();
+    c.bench_function("dilithium2_invalid", |b| {
+        b.iter(|| {
+            let result = verify_signature(black_box(&sig), black_box(&data));
+            black_box(result);
+        })
+    });
+}
+
 fn bench_ct_operations(c: &mut Criterion) {
     let a32 = [0u8; 32];
     let b32 = [0u8; 32];
@@ -164,6 +193,8 @@ criterion_group!(
     bench_ecdsa_p256_invalid,
     bench_rsa_sha256_valid,
     bench_rsa_sha256_invalid,
+    bench_dilithium2_valid,
+    bench_dilithium2_invalid,
     bench_ct_operations,
 );
 criterion_main!(benches);

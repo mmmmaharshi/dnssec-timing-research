@@ -15,6 +15,9 @@ ed25519-dalek = { version = "2.1", features = ["digest", "rand_core"] }
 rsa = { version = "0.9", features = ["sha2"] }
 p256 = { version = "0.13", features = ["ecdsa"] }
 sha2 = "0.10"
+# PQC (Dilithium2) for Q1 scale
+pqcrypto-dilithium = "0.5"
+pqcrypto-traits = "0.3"
 
 # Data parsing
 bytes = "1.7"

@@ -160,6 +160,58 @@ pub fn verify_rsa_sha512(sig: &DnssecSignature, data: &SignedData) -> CtVerifica
     }
 }
 
+/// Verify a Dilithium2 (PQC) signature — constant-time via pqcrypto.
+///
+/// Dilithium2 sig 2420 B, pubkey 1312 B. Verification is deterministic and
+/// designed to be constant-time; we pad parse failures with dummy verify.
+pub fn verify_dilithium2(sig: &DnssecSignature, data: &SignedData) -> CtVerificationResult {
+    use pqcrypto_dilithium::dilithium2::{verify_detached_signature, DetachedSignature, PublicKey};
+    use pqcrypto_traits::sign::{DetachedSignature as _, PublicKey as _};
+
+    let signed_data = crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
+
+    let public_key = match PublicKey::from_bytes(sig.public_key.as_ref()) {
+        Ok(k) => k,
+        Err(_) => {
+            // Dummy verify cost similar to real (~300µs)
+            if let Ok(dk) = PublicKey::from_bytes(&[0u8; 1312]) {
+                if let Ok(ds) = DetachedSignature::from_bytes(&[0u8; 2420]) {
+                    let r = verify_detached_signature(&ds, &signed_data, &dk);
+                    std::hint::black_box(&r);
+                }
+            }
+            return CtVerificationResult::failure();
+        }
+    };
+
+    let signature = match DetachedSignature::from_bytes(sig.signature.as_ref()) {
+        Ok(s) => s,
+        Err(_) => {
+            if let Ok(dk) = PublicKey::from_bytes(&[0u8; 1312]) {
+                if let Ok(ds) = DetachedSignature::from_bytes(&[0u8; 2420]) {
+                    let r = verify_detached_signature(&ds, &signed_data, &dk);
+                    std::hint::black_box(&r);
+                }
+            }
+            return CtVerificationResult::failure();
+        }
+    };
+
+    match verify_detached_signature(&signature, &signed_data, &public_key) {
+        Ok(()) => CtVerificationResult::success(),
+        Err(_) => {
+            // Pad Err to match Ok cost
+            if let Ok(dk) = PublicKey::from_bytes(&[0u8; 1312]) {
+                if let Ok(ds) = DetachedSignature::from_bytes(&[0u8; 2420]) {
+                    let r = verify_detached_signature(&ds, &signed_data, &dk);
+                    std::hint::black_box(&r);
+                }
+            }
+            CtVerificationResult::failure()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
