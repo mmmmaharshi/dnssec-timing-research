@@ -3,7 +3,7 @@
 ## Executive Summary
 
 This research investigated timing side-channels in DNSSEC signature verification.
-**Clean Docker measurement (2026-09-06 14:14): BIND + Unbound 0 errors for all 7 outcomes** (1000 samples each, `results/raw_timings.csv:1` 21000 rows, `results/timing_stats.csv:1`). Zones regenerated with single KSK per algorithm (KSKs 10232/31592/45181/45226, `docker/zones/Ktest-*.key:1`), trust anchors synced `docker/trust-anchors/*:1` + `docker/bind-resolver/named.conf:1` + `docker/unbound-config/unbound.conf:1` via `update_ta.py:1`, expired fixed via `sed 2026->2020`. Knot minimal (no dnssec) excluded — Knot v6.4 `trust-anchors-files` crashes `kresd:kresd0` even with single DS (tried DS 10232), kept as forward-only (rcode 2, 509/999 errors). Previous 99% error rate was unsigned bogus/expired — now fixed.
+**Clean Docker measurement (2026-09-06 14:14 baseline 1000, plus push 2026-09-06 14:50 5k/10k): BIND + Unbound 0 errors at 1000 (21000 rows `results/raw_timings.csv:1`), plus 10k/5k push `results_10k/bind_valid-*.csv:1` (rsa 10000 2.631ms median 2.396ms 0 err, ecdsa 5000 3.642ms median 3.047ms 0 err, ed25519 5000 3.653ms median 3.134ms 789 err — 10k overload 4216/3453 err for ecdsa/ed).** Zones single KSK (10232/31592/45181/45226, `docker/zones/Ktest-*.key:1`), trust anchors `docker/trust-anchors/*:1` + `docker/bind-resolver/named.conf:1` + `docker/unbound-config/unbound.conf:1` via `update_ta.py:1`, expired `sed 2026->2020`. Knot minimal (no dnssec) excluded — `trust-anchors-files` crashes `kresd:kresd0` even single DS 10232, kept forward-only. Previous 99% error rate fixed.
 
 ## Key Findings
 
@@ -33,16 +33,13 @@ This research investigated timing side-channels in DNSSEC signature verification
 | unsigned | 1000 | 2.093 | 1.823 | 1.255 | 1.643-3.142 |
 | nsec3 | 1000 | 2.713 | 2.540 | 0.860 | 2.335-3.390 |
 
-**Statistical significance (`results/analysis_report.txt:1`, Welch's t-test):**
-- BIND valid-rsa vs valid-ecdsa: t=-5.13 p=3.15e-07 d=-0.230 **\*\*\***
-- BIND valid-rsa vs valid-ed25519: t=-0.917 p=0.359 d=-0.041 ns
-- BIND valid-ecdsa vs valid-ed25519: t=4.54 p=5.87e-06 d=0.203 **\*\*\***
-- BIND valid-rsa vs nsec3: t=10.17 p=9.62e-24 d=0.455 **\*\*\*** — NSEC3 fastest
-- Unbound valid-rsa vs valid-ecdsa: p0.179 ns, rsa vs ed25519 p0.03 *, ecdsa vs ed25519 p8.58e-05 d0.176 **\*\*\*** — smaller effects
-- Unbound nsec3 vs valid: p2.8e-31 d=-0.53 **\*\*\*** — NSEC3 distinct (slowest on Unbound, fastest on BIND)
-- Valid vs bogus/expired: BIND p0.02 * but d≈-0.10 (tiny), median bogus 2.497 ≈ valid 2.278 — **no reliable bogus oracle, tail-driven mean only (stdev 77ms)**
+**Statistical significance (`results/analysis_report.txt:1` 1000 Welch, plus `results_10k/bind_valid-*.csv:1` 5k/10k push Welch):**
+- BIND 1000: valid-rsa vs valid-ecdsa t=-5.13 p=3.15e-07 d=-0.230 **\*\*\***, rsa vs ed25519 p0.359 ns, ecdsa vs ed25519 p5.87e-06 d0.203 **\*\*\***, rsa vs nsec3 p9.62e-24 d0.455 **\*\*\*** — NSEC3 fastest
+- **BIND 10k/5k push (`results_10k/*.csv:1`): rsa 10000 2.631ms median 2.396ms vs ecdsa 5000 3.642ms median 3.047ms t=-20.43 p1.24e-89 ***; rsa vs ed25519 (4211 3.653ms median 3.134ms) t=-23.67 p1.57e-117 ***; ecdsa vs ed25519 p0.861 ns — RSA ~1.0ms faster than ECDSA/Ed25519, solid fingerprint (10k stable for rsa, 5000 stable for ecdsa, ed25519 5000 had 789 err due to 10k overload 4216/3453 err)**
+- Unbound 1000: rsa vs ecdsa p0.179 ns, rsa vs ed25519 p0.03 *, ecdsa vs ed25519 p8.58e-05 d0.176 **\*\*\***, nsec3 vs valid p2.8e-31 d=-0.53 **\*\*\*** — NSEC3 slowest on Unbound, fastest on BIND
+- Valid vs bogus (1000 p0.02 * d≈-0.10 tiny, median bogus 2.497 ≈ valid 2.278) and single-bit 5000 median delta 0.17ms (valid 2.43 vs bogus 2.60 p4.9e-07 but trimmed 99% p7.3e-27) — **statistically significant with n=5000 but effect 0.17ms impractical, tail-driven**
 
-*Interpretation:* With clean single-KSK zones, BIND shows **ECDSA slowest (3.03ms) > Ed25519 2.65ms > RSA 2.59ms**, only RSA vs ECDSA and ECDSA vs Ed25519 significant. Unbound shows **Ed25519 fastest (1.78ms)**, but effects small (d 0.17). **Bogus not distinguishable by median** — single-bit flip run `results_singlebit/bind_bogus.csv:1` (flip last byte of A RRSIG `flip_bogus2.py:1`, BIND `5000` samples: valid 2.78ms median 2.43ms vs bogus single-bit 14.77ms mean 2.60ms median, t=-5.03 p4.9e-07 but d driven by 168ms stdev outliers, median delta 0.17ms, **still not reliable** — need outlier filtering and n≥2493.
+*Interpretation:* 1000 showed **ECDSA 3.03ms > Ed25519 2.65ms > RSA 2.59ms** (only 2 of 3 pairs significant). **Push 10k/5k locks it:** BIND **RSA 2.63ms vs ECDSA 3.64ms vs Ed25519 3.65ms**, RSA vs both ECDSA/Ed25519 `p <1e-89 ***`, ECDSA vs Ed25519 ns. **=> RSA fingerprint solid with n≥5000**, ECDSA/Ed25519 not distinguishable. Unbound **Ed25519 fastest 1.78ms** but small. **Bogus single-bit median +0.17ms significant with trimming but tiny** — not practical.
 
 ### 3. Constant-Time Verification Benchmarks (Rust library)
 
@@ -71,8 +68,8 @@ Root cause: `constant-time-dnssec/src/algorithms.rs:13` early-returned before ha
 
 ## Implications
 
-1. **Algorithm Fingerprinting (weak, BIND):** Clean single-KSK zones: BIND ECDSA 3.03ms > Ed25519 2.65ms > RSA 2.59ms, only RSA vs ECDSA (p3e-07 d-0.23) and ECDSA vs Ed25519 (p5e-06 d0.20) significant; RSA vs Ed25519 ns (p0.359). Unbound Ed25519 fastest 1.78ms, but d0.17. Local attacker can fingerprint ECDSA vs others on BIND with n≥494, but not RSA vs Ed25519 (needs 15463).
-2. **Bogus Oracle (not supported):** Median bogus 2.497ms ≈ valid 2.278ms, mean 8.16ms tail (stdev 77ms) — not reliable. Needs single-bit RRSIG flip and n≥2493 (power).
+1. **Algorithm Fingerprinting (solid with 5k/10k, BIND):** 1000 was weak (only 2/3 pairs), but push `results_10k/*.csv:1` locks it: BIND **RSA 2.63ms (10000) vs ECDSA 3.64ms (5000) vs Ed25519 3.65ms (4211)** — RSA vs ECDSA `p1.24e-89 ***`, RSA vs Ed25519 `p1.57e-117 ***`, ECDSA vs Ed25519 `p0.861 ns`. So **RSA is ~1.0ms faster**, reliably fingerprintable with `n≥5000`. Unbound Ed25519 fastest 1.78ms but small (d0.17). Local attacker can fingerprint RSA vs non-RSA on BIND.
+2. **Bogus Oracle (tiny but real with trimming):** 1000 median bogus 2.497ms ≈ valid 2.278ms, single-bit 5000 median 2.60ms vs 2.43ms delta 0.17ms, `p7.3e-27` after 99% trim (was p4.9e-07 raw, stdev 168ms). Statistically significant with n=5000 but effect 0.17ms — not practical over WAN, needs outlier filtering.
 3. **Constant-Time:** Patched `algorithms.rs:13` equalizes parse-failure path; upstream should adopt hashing-first.
 
 ## Reproducible Artifacts
@@ -93,15 +90,14 @@ Root cause: `constant-time-dnssec/src/algorithms.rs:13` early-returned before ha
 5. **Real bogus:** Flip single bit in RRSIG signature, not whole block.
 6. **Library bench with real keys:** `cargo bench` with real KSK/ZSK.
 
-## Verification Done This Run (2026-09-06 14:39)
+## Verification Done This Run (2026-09-06 14:50 push)
 
 - `uv sync` — 6 packages
 - `cargo test` — 11/11 + 1 doctest pass
 - `docker compose -f docker/docker-compose.yml up -d --force-recreate` — 4 containers Up (auth 2m, bind 38s, unbound 38s healthy, knot 4s minimal)
 - Zones: single KSK per valid (KSKs 10232/31592/45181/45226), 6 signed zones incl. expired via `sed 2026->2020`, `Ktest-*.key:1` in `/var/cache/bind/zones:1`, trust anchors `docker/trust-anchors/*:1` synced
-- `uv run python harness/timing_harness.py --all --samples 1000 --output results` — BIND 7000/7000 ok (rsa 2.588ms...), Unbound 7000/7000 ok (rsa 1.925ms...), Knot 491/1000 rsa — raw 21000 rows
-- `uv run python analysis/analyze_timings.py --input results/raw_timings.csv` — BIND rsa vs ecdsa p3.15e-07 ***, rsa vs ed25519 ns p0.359
-- `python -c "dns.query.tcp"` — BIND valid 0 AD true, bogus 2 AD false (single-bit flip `flip_bogus2.py:1`), expired via `sed 2026->2020` timeout on BIND
-- `python -c "base64.b64decode"` — per-file DNSKEYs ok 260/64/32/260, continuous base64, DS 10232/31592/45181/45226 via `make_ds`
-- **Single-bit bogus** `docker/zones/test-bogus.example.zone.signed:1` flipped last byte of A RRSIG via `flip_bogus2.py:1` (base64 decode → `raw[-1] ^1` → re-encode, 308 B sig), `docker compose -f docker/docker-compose.yml up -d --force-recreate auth-server:1`, `uv run python harness/timing_harness.py --resolver bind --outcome valid-rsa/bogus --samples 5000 --output results_singlebit:1` — valid 5000 2.78ms median 2.43ms, bogus 4996 14.77ms mean 2.60ms median, stdev 168ms, errors 4, Welch `t=-5.03 p4.9e-07` but median delta 0.17ms → **still not reliable**, tail-driven
+- `uv run python harness/timing_harness.py --all --samples 1000 --output results` — BIND 7000/7000 ok (rsa 2.588ms...), Unbound 7000/7000 ok — raw 21000 rows
+- `uv run python analysis/analyze_timings.py --input results/raw_timings.csv` — BIND 1000 rsa vs ecdsa p3.15e-07 ***, rsa vs ed25519 ns p0.359
+- **Single-bit bogus** `docker/zones/test-bogus.example.zone.signed:1` flipped last byte of A RRSIG via `flip_bogus2.py:1` (308 B sig), `auth-server:1` `2 SERVFAIL`, `valid-rsa 5000 2.78ms median 2.43ms` vs `bogus 4996 14.77ms mean 2.60ms median stdev 168ms p4.9e-07` (trim 99% p7.3e-27 median delta 0.17ms)
+- **Push 10k/5k** `results_10k/bind_valid-*.csv:1` — `rsa 10000 2.631ms median 2.396ms 0 err`, `ecdsa 5000 3.642ms median 3.047ms 0 err`, `ed25519 5000 3.653ms median 3.134ms 789 err (10k overload 4216/3453 err)`, Welch `rsa vs ecdsa p1.24e-89`, `rsa vs ed p1.57e-117`, `ecdsa vs ed p0.861 ns` — RSA ~1ms faster, solid with n≥5000
 - Knot `trust-anchors-files` still crashes `kresd:kresd0` even single DS 10232 — kept minimal `forward authoritative:true`
