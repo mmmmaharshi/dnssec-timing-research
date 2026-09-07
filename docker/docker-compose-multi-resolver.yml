@@ -1,0 +1,111 @@
+# docker-compose-multi-resolver.yml
+#
+# Test cache attack against multiple DNS resolver software.
+# Proves the attack is general, not BIND-specific.
+#
+# Resolvers tested:
+#   - BIND 9 (authoritative + recursive)
+#   - Unbound (validating resolver)
+#   - Knot Resolver (validating resolver)
+
+version: "3.8"
+
+services:
+  # Authoritative server (common for all tests)
+  auth:
+    image: ubuntu:22.04
+    container_name: dnssec-auth
+    hostname: auth
+    volumes:
+      - ./bind-config/named.conf:/etc/bind/named.conf:ro
+      - ./zones:/var/cache/bind/zones:ro
+    networks:
+      test-net:
+        ipv4_address: 172.30.0.10
+    cpuset: "2"
+    command: >
+      bash -c "
+        apt-get update -qq &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bind9 &&
+        named -g -c /etc/bind/named.conf &
+        tail -f /dev/null
+      "
+
+  # BIND resolver
+  bind-resolver:
+    image: ubuntu:22.04
+    container_name: dnssec-bind
+    hostname: bind-resolver
+    volumes:
+      - ./bind-resolver/named-victim.conf:/etc/bind/named.conf:ro
+      - ./zones:/var/cache/bind/zones:ro
+    networks:
+      test-net:
+        ipv4_address: 172.30.0.20
+    cpuset: "0,1"
+    command: >
+      bash -c "
+        apt-get update -qq &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' bind9 dnsutils &&
+        named -g -c /etc/bind/named.conf &
+        tail -f /dev/null
+      "
+
+  # Unbound resolver
+  unbound-resolver:
+    image: mvance/unbound:latest
+    container_name: dnssec-unbound
+    hostname: unbound-resolver
+    volumes:
+      - ./unbound-config/unbound.conf:/etc/unbound/unbound.conf:ro
+    networks:
+      test-net:
+        ipv4_address: 172.30.0.21
+    cpuset: "0,1"
+
+  # Knot Resolver
+  knot-resolver:
+    image: cznic/knot-resolver:latest
+    container_name: dnssec-knot
+    hostname: knot-resolver
+    volumes:
+      - ./knot-config/config.yaml:/etc/knot-resolver/config.yaml:ro
+    networks:
+      test-net:
+        ipv4_address: 172.30.0.22
+    cpuset: "0,1"
+
+  # Attacker (shared across all tests)
+  attacker:
+    image: ubuntu:22.04
+    container_name: dnssec-attacker
+    hostname: attacker
+    depends_on:
+      - bind-resolver
+      - unbound-resolver
+      - knot-resolver
+    volumes:
+      - ../harness:/research/harness:ro
+      - ../results_multi:/research/results
+    networks:
+      test-net:
+        ipv4_address: 172.30.0.100
+    cpuset: "0,1"
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+    command: >
+      bash -c "
+        apt-get update -qq &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 python3-pip gcc dnsutils &&
+        pip3 install dnspython numpy scipy scikit-learn 2>&1 | tail -3 &&
+        echo 'Attacker ready' &&
+        tail -f /dev/null
+      "
+
+networks:
+  test-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
