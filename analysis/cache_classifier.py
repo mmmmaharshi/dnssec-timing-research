@@ -177,7 +177,7 @@ class AlgorithmClassifier:
 
         # Extract features from timing vectors
         print(f"[*] Extracting features...")
-        X = self.feature_extractor.extract_batch(timing_data.values)
+        X = self.feature_extractor.extract_batch(timing_data.values.astype(np.float64))
         y = labels
 
         print(f"[*] Feature matrix shape: {X.shape}")
