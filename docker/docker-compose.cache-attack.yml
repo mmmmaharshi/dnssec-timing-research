@@ -28,7 +28,7 @@ services:
     container_name: dnssec-victim
     hostname: victim
     volumes:
-      - ./bind-resolver/named.conf:/etc/bind/named.conf:ro
+      - ./bind-resolver/named-victim.conf:/etc/bind/named.conf:ro
       - ./zones:/var/cache/bind/zones:ro
       - ./trust-anchors:/etc/bind/trust-anchors:ro
     networks:
@@ -36,20 +36,20 @@ services:
         ipv4_address: 172.25.0.10
     # Pin to CPU cores 0-1 (shared L3 cache with attacker)
     cpuset: "0,1"
-    # Disable CPU frequency scaling for consistent timing
-    sysctls:
-      - kernel.sched_schedstats=0
     command: >
       bash -c "
         apt-get update &&
-        apt-get install -y bind9 bind9-utils dnsutils &&
-        named -g -c /etc/bind/named.conf
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' bind9 bind9-utils dnsutils &&
+        named -g -c /etc/bind/named.conf &
+        sleep 2 &&
+        echo 'Victim ready'
+        tail -f /dev/null
       "
     healthcheck:
-      test: ["CMD", "dig", "@localhost", "test-valid-rsa.example", "A", "+short"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "dig", "@localhost", "test-valid-rsa.example", "A", "+short", "+time=2"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # Attacker: Cache probe + trigger attack
   attacker:
@@ -76,7 +76,7 @@ services:
     command: >
       bash -c "
         apt-get update &&
-        apt-get install -y python3 python3-pip gcc dig &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip gcc dnsutils &&
         pip3 install dnspython numpy scipy scikit-learn &&
         echo 'Attacker ready. Run:' &&
         echo '  gcc -O2 -o cache_probe cache_probe.c -lpthread' &&
