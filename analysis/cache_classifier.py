@@ -31,7 +31,6 @@ Author: DNSSEC Timing Research
 import argparse
 import os
 import sys
-import pickle
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -306,36 +305,6 @@ class AlgorithmClassifier:
 
         return df
 
-    def save(self, path: str):
-        """Save trained model to disk."""
-        if not self.is_trained:
-            raise RuntimeError("Classifier not trained yet")
-
-        with open(path, "wb") as f:
-            pickle.dump({
-                "model": self.model,
-                "scaler": self.scaler,
-                "label_encoder": self.label_encoder,
-                "model_type": "random_forest",
-            }, f)
-
-        print(f"[*] Model saved to {path}")
-
-    def load(self, path: str):
-        """Load trained model from disk."""
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-
-        self.model = data["model"]
-        self.scaler = data["scaler"]
-        self.label_encoder = data["label_encoder"]
-        self.model_type = data["model_type"]
-        self.is_trained = True
-
-        print(f"[*] Model loaded from {path}")
-        print(f"[*] Type: {self.model_type}")
-        print(f"[*] Classes: {self.label_encoder.classes_}")
-
 
 def run_full_pipeline(
     input_csv: str,
@@ -368,10 +337,6 @@ def run_full_pipeline(
         importance_csv = output_path / "feature_importance.csv"
         importance_df.to_csv(importance_csv, index=False)
         print(f"[*] Feature importance saved to {importance_csv}")
-
-    # Save model
-    model_path = output_path / "random_forest_model.pkl"
-    clf.save(str(model_path))
 
     # Save results summary
     summary = {

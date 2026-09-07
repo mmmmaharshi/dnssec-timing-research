@@ -138,56 +138,6 @@ def plot_dudect_results(output_dir):
     print(f"[*] Saved {output_path}")
 
 
-def plot_roc_curves(timings, labels, output_dir):
-    """Figure 5: ROC curves (one-vs-rest)."""
-    print("[*] Generating ROC curves...")
-
-    from sklearn.preprocessing import label_binarize
-    from sklearn.metrics import roc_curve, auc
-    from sklearn.model_selection import train_test_split
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.preprocessing import StandardScaler
-
-    # Binarize labels
-    classes = np.unique(labels)
-    labels_bin = label_binarize(labels, classes=classes).astype(np.float64)
-
-    # Extract simple features for demo
-    # In practice, use the full feature extractor
-    X = np.array([[np.mean(t), np.std(t), np.max(t), np.percentile(t, 95)] for t in timings])
-
-    X_train, X_test, y_train, y_test = train_test_split(X, labels_bin, test_size=0.3, random_state=42)
-
-    clf = RandomForestClassifier(n_estimators=100, random_state=42)
-    clf.fit(X_train, y_train)
-    y_score = clf.predict_proba(X_test)
-    # y_score is a list of arrays for multi-class, convert to 2D
-    if isinstance(y_score, list):
-        y_score = np.column_stack(y_score)
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    colors = ['#2196F3', '#4CAF50', '#FF9800', '#9E9E9E']
-    for i, (cls, color) in enumerate(zip(classes, colors)):
-        fpr, tpr, _ = roc_curve(y_test[:, i], y_score[:, i])
-        roc_auc = auc(fpr, tpr)
-        ax.plot(fpr, tpr, color=color, lw=2, label=f'{cls} (AUC={roc_auc:.2f})')
-
-    ax.plot([0, 1], [0, 1], 'k--', lw=1)
-    ax.set_xlim([0.0, 1.0])
-    ax.set_ylim([0.0, 1.05])
-    ax.set_xlabel('False Positive Rate')
-    ax.set_ylabel('True Positive Rate')
-    ax.set_title('ROC Curves (One-vs-Rest)')
-    ax.legend(loc="lower right")
-
-    plt.tight_layout()
-    output_path = output_dir / 'roc_curves.png'
-    plt.savefig(output_path)
-    plt.close()
-    print(f"[*] Saved {output_path}")
-
-
 def plot_attack_timeline(output_dir):
     """Figure 6: Attack timeline visualization."""
     print("[*] Generating attack timeline...")
@@ -247,12 +197,6 @@ def main():
     if importance_path.exists():
         importance_df = pd.read_csv(importance_path)
         plot_feature_importance(importance_df, output_dir)
-
-    # ROC curves
-    try:
-        plot_roc_curves(timings, labels, output_dir)
-    except Exception as e:
-        print(f"[-] ROC curves failed: {e}")
 
     print(f"\n[*] All figures saved to {output_dir}")
 
