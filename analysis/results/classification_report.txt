@@ -1,0 +1,29 @@
+Cache-Based DNSSEC Algorithm Classification
+============================================================
+
+Model: random_forest
+Samples: 2000
+Features: 64
+Classes: ['baseline' 'ecdsa' 'ed25519' 'rsa']
+
+Cross-Validation Results:
+  Accuracy: 0.9795 (+/- 0.0053)
+
+Classification Report:
+              precision    recall  f1-score   support
+
+    baseline       1.00      1.00      1.00       100
+       ecdsa       0.95      0.94      0.94       100
+     ed25519       1.00      1.00      1.00       100
+         rsa       0.94      0.95      0.95       100
+
+    accuracy                           0.97       400
+   macro avg       0.97      0.97      0.97       400
+weighted avg       0.97      0.97      0.97       400
+
+
+Confusion Matrix:
+[[100   0   0   0]
+ [  0  94   0   6]
+ [  0   0 100   0]
+ [  0   5   0  95]]
