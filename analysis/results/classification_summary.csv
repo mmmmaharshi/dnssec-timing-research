@@ -1,0 +1,2 @@
+model_type,n_samples,n_features,classes,cv_accuracy,cv_std,test_accuracy
+random_forest,2000,64,"['baseline', 'ecdsa', 'ed25519', 'rsa']",0.9795000000000001,0.005338539126015669,0.9725

@@ -1,0 +1,92 @@
+# docker-compose.cache-attack.yml
+#
+# Local test environment for cache-based DNSSEC timing attack.
+#
+# This sets up two containers on the same host with shared CPU cores
+# to demonstrate cross-container cache side-channel attack.
+#
+# Architecture:
+#   - victim: BIND resolver performing DNSSEC validation
+#   - attacker: Runs cache_probe + trigger_attack.py
+#
+# Both containers are pinned to the same CPU cores to ensure shared L3 cache.
+#
+# Usage:
+#   docker compose -f docker-compose.cache-attack.yml up -d
+#   docker compose -f docker-compose.cache-attack.yml exec attacker bash
+#   # Inside attacker container:
+#   cd /research/harness
+#   gcc -O2 -o cache_probe cache_probe.c -lpthread
+#   python3 trigger_attack.py --resolver victim --port 53 --rounds 1000
+
+version: "3.8"
+
+services:
+  # Victim: BIND resolver with DNSSEC validation
+  victim:
+    image: ubuntu:22.04
+    container_name: dnssec-victim
+    hostname: victim
+    volumes:
+      - ./bind-resolver/named.conf:/etc/bind/named.conf:ro
+      - ./zones:/var/cache/bind/zones:ro
+      - ./trust-anchors:/etc/bind/trust-anchors:ro
+    networks:
+      cache-attack-net:
+        ipv4_address: 172.25.0.10
+    # Pin to CPU cores 0-1 (shared L3 cache with attacker)
+    cpuset: "0,1"
+    # Disable CPU frequency scaling for consistent timing
+    sysctls:
+      - kernel.sched_schedstats=0
+    command: >
+      bash -c "
+        apt-get update &&
+        apt-get install -y bind9 bind9-utils dnsutils &&
+        named -g -c /etc/bind/named.conf
+      "
+    healthcheck:
+      test: ["CMD", "dig", "@localhost", "test-valid-rsa.example", "A", "+short"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Attacker: Cache probe + trigger attack
+  attacker:
+    image: ubuntu:22.04
+    container_name: dnssec-attacker
+    hostname: attacker
+    depends_on:
+      victim:
+        condition: service_healthy
+    volumes:
+      - ../harness:/research/harness:ro
+      - ../analysis:/research/analysis:ro
+      - ../results_cache:/research/results
+    working_dir: /research/harness
+    networks:
+      cache-attack-net:
+        ipv4_address: 172.25.0.20
+    # Pin to same CPU cores as victim (shared L3 cache)
+    cpuset: "0,1"
+    # Required for cache probing (rdtsc, clflush)
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+    command: >
+      bash -c "
+        apt-get update &&
+        apt-get install -y python3 python3-pip gcc dig &&
+        pip3 install dnspython numpy scipy scikit-learn &&
+        echo 'Attacker ready. Run:' &&
+        echo '  gcc -O2 -o cache_probe cache_probe.c -lpthread' &&
+        echo '  python3 trigger_attack.py --resolver victim --port 53 --rounds 1000' &&
+        tail -f /dev/null
+      "
+
+networks:
+  cache-attack-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/24

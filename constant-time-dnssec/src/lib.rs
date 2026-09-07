@@ -19,6 +19,13 @@ use subtle::ConstantTimeEq;
 pub mod algorithms;
 pub mod verify;
 
+pub use algorithms::{
+    verify_dilithium2,
+    verify_ecdsa_p256,
+    verify_ed25519,
+    verify_rsa_sha256,
+    verify_rsa_sha512,
+};
 pub use verify::{VerificationResult, verify_signature};
 
 /// DNSSEC algorithm numbers as defined in RFC 4034.

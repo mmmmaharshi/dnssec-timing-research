@@ -18,8 +18,7 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 
 import numpy as np
-from scipy import stats as scipy_stats
-from scipy.stats import norm
+from scipy.stats import norm, ttest_ind
 
 
 def load_timings(filepath: str) -> Dict[str, Dict[str, List[int]]]:
@@ -60,7 +59,7 @@ def compute_statistics(times: List[int]) -> Dict:
 
 def welch_ttest(group1: List[int], group2: List[int]) -> Tuple[float, float]:
     """Perform Welch's t-test. Returns (t-statistic, p-value)."""
-    t_stat, p_value = scipy_stats.ttest_ind(group1, group2, equal_var=False)
+    t_stat, p_value = ttest_ind(group1, group2, equal_var=False)
     return t_stat, p_value
 
 
