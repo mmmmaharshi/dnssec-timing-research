@@ -11,7 +11,8 @@
  *   - Trigger: Victim performs DNSSEC validation (via trigger_attack.py)
  *   - Probe: Measure access latency to detect evictions
  *
- * Compilation: gcc -O2 -o cache_probe cache_probe.c -lpthread
+ * Compilation (Linux): gcc -O2 -o cache_probe cache_probe.c -lpthread
+ * Compilation (Windows): cl /O2 cache_probe.c (or MinGW gcc -O2 -o cache_probe.exe cache_probe.c)
  * Usage: ./cache_probe [--prime-only | --probe-only | --rounds N] [--cache-size KB] [--output file.csv]
  *
  * Author: DNSSEC Timing Research
@@ -24,11 +25,18 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
-#include <sched.h>
 #include <pthread.h>
 #include <time.h>
 #include <errno.h>
 #include <getopt.h>
+
+/* Platform-specific includes */
+#ifdef _WIN32
+#include <windows.h>
+#include <malloc.h>
+#else
+#include <sched.h>
+#endif
 
 /* Configuration */
 #define DEFAULT_CACHE_SIZE_KB (8 * 1024)  /* 8 MB L3 cache typical */
@@ -77,7 +85,11 @@ static inline void mfence(void) {
 /* Allocate buffer covering L3 cache */
 static int allocate_buffer(probe_state_t *state, size_t cache_size_kb) {
     state->buffer_size = cache_size_kb * 1024;
+#ifdef _WIN32
+    state->buffer = (uint8_t *)_aligned_malloc(state->buffer_size, PAGE_SIZE);
+#else
     state->buffer = (uint8_t *)aligned_alloc(PAGE_SIZE, state->buffer_size);
+#endif
     if (!state->buffer) {
         perror("aligned_alloc");
         return -1;
@@ -90,7 +102,11 @@ static int allocate_buffer(probe_state_t *state, size_t cache_size_kb) {
     state->timing_results = (uint64_t *)calloc(state->num_cache_lines, sizeof(uint64_t));
     if (!state->timing_results) {
         perror("calloc");
+#ifdef _WIN32
+        _aligned_free(state->buffer);
+#else
         free(state->buffer);
+#endif
         return -1;
     }
 
@@ -425,12 +441,19 @@ int main(int argc, char *argv[]) {
     }
 
     /* Pin to CPU core for consistent cache behavior */
+#ifdef _WIN32
+    DWORD_PTR mask = 1;
+    if (SetThreadAffinityMask(GetCurrentThread(), mask)) {
+        printf("[*] Pinned to CPU core 0\n");
+    }
+#else
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(0, &cpuset);
     if (sched_setaffinity(0, sizeof(cpuset), &cpuset) == 0) {
         printf("[*] Pinned to CPU core 0\n");
     }
+#endif
 
     /* Allocate buffer */
     if (allocate_buffer(&state, cache_size_kb) != 0) {
@@ -474,7 +497,11 @@ int main(int argc, char *argv[]) {
 
     /* Cleanup */
     if (csv_out) fclose(csv_out);
+#ifdef _WIN32
+    _aligned_free(state.buffer);
+#else
     free(state.buffer);
+#endif
     free(state.timing_results);
 
     return ret;

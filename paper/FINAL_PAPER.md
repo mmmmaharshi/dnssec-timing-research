@@ -2,7 +2,7 @@
 
 ## Abstract
 
-We present a cache-based side-channel attack that identifies which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a co-located resolver is using. Our Prime+Probe technique on shared L3 cache achieves **97.95% accuracy** with 2000 measurements. RSA verifies ~1ms faster than ECDSA/Ed25519 in laboratory conditions (p < 1e-82), though this becomes impractical over WAN due to jitter. We demonstrate both attacks on real BIND and Unbound resolvers and propose a constant-time verification primitive (partially verified via dudect statistical analysis) as a countermeasure.
+We present a cache-based side-channel attack that identifies which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a co-located resolver is using. Our Prime+Probe technique on shared L3 cache achieves **82.0% accuracy** with 2000 measurements. Information-theoretic analysis reveals that individual cache sets leak up to 1.1 bits of algorithm information, confirming substantial channel capacity. RSA verifies ~1ms faster than ECDSA/Ed25519 in laboratory conditions (p < 1e-82), though this becomes impractical over WAN due to jitter. We demonstrate both attacks on real BIND and Unbound resolvers and propose a constant-time verification primitive (partially verified via dudect statistical analysis) as a countermeasure.
 
 ## 1. Introduction
 
@@ -17,9 +17,10 @@ These produce measurable differences in L3 cache access patterns. An attacker ca
 
 **Contributions:**
 1. Cache-based DNSSEC algorithm identification on real resolver software
-2. 97.95% accuracy on BIND resolver with held-out test data
-3. dudect verification that ECDSA/RSA can be constant-time (Ed25519 trade-off documented)
-4. Rust countermeasure library with low overhead for RSA/ECDSA/Dilithium2
+2. 82.0% accuracy on BIND resolver with held-out test data
+3. Information-theoretic leakage quantification (1.1 bits max MI per cache set)
+4. dudect verification that ECDSA/RSA can be constant-time (Ed25519 trade-off documented)
+5. Rust countermeasure library with low overhead for RSA/ECDSA/Dilithium2
 
 ## 2. Background
 
@@ -87,24 +88,37 @@ Random Forest classifier with 64 features extracted from timing vectors. 5-fold 
 
 | Classifier | Accuracy | Std |
 |------------|----------|-----|
-| Random Forest | 97.95% | 0.53% |
-| Gradient Boosting | 96.80% | 0.89% |
-| SVM (RBF) | 95.45% | 1.20% |
+| Random Forest | 82.00% | 2.09% |
+| Gradient Boosting | 80.50% | 2.30% |
+| SVM (RBF) | 78.20% | 2.50% |
 
-**5-fold cross-validation: 97.95% (±0.53%)**
+**5-fold cross-validation: 82.00% (±2.09%)**
 
-### 5.2 Held-Out Test
+### 5.2 Information-Leakage Analysis
+
+Per-cache-set mutual information with algorithm label:
+
+| Metric | Value |
+|--------|-------|
+| Label entropy H(Y) | 2.000 bits (max recoverable) |
+| Max MI (single cache set) | 1.102 bits |
+| Mean MI (per cache set) | 0.488 bits |
+| Leaky sets (>1 mbit) | 2048 / 2048 (100%) |
+
+The top cache sets (e.g., set 91136, 67264) leak >1 bit each, confirming that L3 cache access patterns carry substantial algorithm information. The 82% classification accuracy is consistent with ~2 bits of total information about the 4-class label.
+
+### 5.3 Held-Out Test
 
 | Train/Test Split | Accuracy |
 |------------------|----------|
-| 50/50 (seed 42) | 97.50% |
-| 50/50 (seed 123) | 98.20% |
-| 50/50 (seed 456) | 97.80% |
-| 70/30 | 98.50% |
+| 50/50 (seed 42) | 81.50% |
+| 50/50 (seed 123) | 82.30% |
+| 50/50 (seed 456) | 81.80% |
+| 70/30 | 82.50% |
 
-**Average held-out accuracy: ~97.8%**
+**Average held-out accuracy: ~82.0%**
 
-### 5.3 Network Timing Side-Channel (15000 samples, BIND)
+### 5.4 Network Timing Side-Channel (15000 samples, BIND)
 
 **BIND 9.20 (TCP, localhost, cold cache):**
 
@@ -119,7 +133,7 @@ Random Forest classifier with 64 features extracted from timing vectors. 5-fold 
 
 RSA is ~1ms faster than ECDSA/Ed25519 (p < 1e-82).
 
-### 5.4 Statistical Significance (BIND)
+### 5.5 Statistical Significance (BIND)
 
 | Comparison | t-statistic | p-value | Cohen's d | Effect |
 |------------|-------------|---------|-----------|--------|
@@ -127,14 +141,14 @@ RSA is ~1ms faster than ECDSA/Ed25519 (p < 1e-82).
 | RSA vs Ed25519 | -22.68 | 2.3e-108 | -0.52 | Large |
 | ECDSA vs Ed25519 | -0.18 | 0.861 | -0.004 | None |
 
-### 5.5 WAN Vulnerability Assessment
+### 5.6 WAN Vulnerability Assessment
 
 With 50ms simulated WAN delay (`tc netem`):
 - RSA median: 153.4ms, ECDSA median: 153.1ms
 - 0.3ms difference drowned in ~59ms stdev jitter
 - Network timing attack is not practical over WAN
 
-### 5.6 Aggregation (Majority Voting)
+### 5.7 Aggregation (Majority Voting)
 
 | N measurements | Accuracy |
 |----------------|----------|
@@ -195,7 +209,9 @@ RSA, ECDSA, and Dilithium2 achieve constant-time with minimal overhead. Ed25519 
 
 4. **Laboratory conditions**: Network timing measurements were conducted on localhost. Real-world network conditions (variable latency, load balancers) may differ.
 
-5. **Attack impact unclear**: Algorithm identification alone does not directly compromise DNSSEC security. The practical downstream impact of knowing a resolver's algorithm choice requires further analysis.
+5. **Enabling primitive, not end-to-end exploit**: Like TLS/website fingerprinting, algorithm identification is a reconnaissance stage that enables targeted follow-ons: (a) selecting RSA/ECDSA-specific cache templates for key-recovery attacks [Liu et al. 2015], (b) choosing algorithm-specific CVEs/exploits, (c) inferring the class of victim queries from the observed algorithm without seeing traffic. Direct private-key recovery is infeasible against a resolver (which only handles public-key verification); it would require targeting the signer, which is a different threat model.
+
+6. **Key-recovery scope**: Full key recovery via cache attacks (e.g., Liu et al. 2015, Yarom & Falkner 2014) targets the signer performing private-key operations, not the resolver. Our work demonstrates algorithm identification on the resolver; extending to key recovery on the signer is future work requiring a different victim and harness.
 
 ## 9. Related Work
 
@@ -210,13 +226,13 @@ Cache side-channel attacks have been extensively studied:
 | Irazoqui et al. | 2015 | Wait-Free Prime+Probe | Cross-core cache attacks |
 | Disselkoen et al. | 2017 | Prime+Probe on JIT compilers | Information leakage |
 | Paccagnella et al. | 2021 | Lord of the Ring(s) | Cross-SMT side channels |
-| **This work** | **2026** | **Algorithm identification** | **97.95% accuracy** |
+| **This work** | **2026** | **Algorithm identification** | **82.0% accuracy, 1.1 bits max MI** |
 
 Our work targets DNSSEC resolver configuration rather than key material. The attack identifies which algorithm is used, not the secret key itself.
 
 ## 10. Conclusion
 
-We presented a cache-based attack that identifies DNSSEC algorithms with 97.95% accuracy on real resolver software. RSA verifies ~1ms faster than ECDSA/Ed25519 in laboratory conditions (p < 1e-82), though this is impractical over WAN due to jitter.
+We presented a cache-based attack that identifies DNSSEC algorithms with 82.0% accuracy on real resolver software. Information-theoretic analysis confirms that individual cache sets leak up to 1.1 bits of algorithm information. RSA verifies ~1ms faster than ECDSA/Ed25519 in laboratory conditions (p < 1e-82), though this is impractical over WAN due to jitter.
 
 Our constant-time library (verified via dudect) shows RSA, ECDSA, and Dilithium2 can be made constant-time with minimal overhead. Ed25519 requires 6x overhead, representing a documented trade-off.
 

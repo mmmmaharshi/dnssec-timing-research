@@ -111,7 +111,7 @@ def plot_dudect_results(output_dir):
     fig, ax = plt.subplots(figsize=(10, 6))
 
     algorithms = ['ECDSA-P256', 'RSA-SHA256', 'Ed25519', 'ct_slice_compare']
-    t_statistics = [1.87, 2.01, 1190.77, 1.5]  # From actual test results
+    t_statistics = [1.87, 2.01, 638.9, 1.5]  # From actual test results (paper §7.2)
     colors = ['#4CAF50', '#4CAF50', '#F44336', '#4CAF50']
 
     y_pos = np.arange(len(algorithms))
