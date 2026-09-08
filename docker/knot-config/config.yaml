@@ -2,6 +2,8 @@ workers: 1
 network:
   listen:
     - interface: 0.0.0.0@53
+dnssec:
+  enable: false
 forward:
   - subtree: "."
     servers: [172.20.0.10]

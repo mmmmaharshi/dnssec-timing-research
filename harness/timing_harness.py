@@ -122,7 +122,7 @@ class DNSSecTimingHarness:
         self.config = RESOLVERS[resolver_name]
         self.timeout = timeout
 
-    def measure_single_query(self, domain: str) -> TimingResult:
+    def measure_single_query(self, domain: str, protocol: str = "tcp") -> TimingResult:
         """Send a single DNS query and measure response time."""
         try:
             # Build query
@@ -130,14 +130,22 @@ class DNSSecTimingHarness:
             query = dns.message.make_query(qname, dns.rdatatype.A)
             query.flags |= dns.flags.AD  # Request AD bit
 
-            # Measure time - use TCP to avoid Windows UDP issues
+            # Measure time
             start = time.perf_counter_ns()
-            response = dns.query.tcp(
-                query,
-                self.config["host"],
-                port=self.config["port"],
-                timeout=self.timeout,
-            )
+            if protocol == "udp":
+                response = dns.query.udp(
+                    query,
+                    self.config["host"],
+                    port=self.config["port"],
+                    timeout=self.timeout,
+                )
+            else:
+                response = dns.query.tcp(
+                    query,
+                    self.config["host"],
+                    port=self.config["port"],
+                    timeout=self.timeout,
+                )
             end = time.perf_counter_ns()
 
             query_time = end - start
@@ -171,6 +179,7 @@ class DNSSecTimingHarness:
         warmup: int = 100,
         progress: bool = True,
         cache_state: str = "cold",
+        protocol: str = "tcp",
     ) -> List[TimingResult]:
         """Measure timing for a specific validation outcome."""
         if outcome_name not in TEST_DOMAINS:
@@ -185,16 +194,16 @@ class DNSSecTimingHarness:
         if progress:
             print(f"  Warming up ({warmup} queries)...", end="", flush=True)
         for _ in range(warmup):
-            self.measure_single_query(domain)
+            self.measure_single_query(domain, protocol=protocol)
         if progress:
             print(" done")
 
         # Actual measurements
         if progress:
-            print(f"  Collecting {samples} samples ({cache_state} cache)...", end="", flush=True)
+            print(f"  Collecting {samples} samples ({cache_state} cache, {protocol.upper()})...", end="", flush=True)
 
         for i in range(samples):
-            result = self.measure_single_query(domain)
+            result = self.measure_single_query(domain, protocol=protocol)
             result.outcome = outcome_name
             result.cache_state = cache_state
             results.append(result)
@@ -298,9 +307,51 @@ def save_results(results: List[TimingResult], filepath: str) -> None:
             ])
 
 
+def apply_wan_delay(resolver_name: str, delay_ms: float) -> None:
+    """Apply WAN delay to resolver container using tc netem."""
+    container_map = {
+        "bind": "dnssec-bind",
+        "unbound": "dnssec-unbound",
+        "knot": "dnssec-knot",
+    }
+    container = container_map.get(resolver_name)
+    if not container:
+        print(f"Warning: Unknown resolver {resolver_name}, cannot apply WAN delay")
+        return
+
+    print(f"Applying {delay_ms}ms WAN delay to {container}...")
+    # Add network delay using tc netem
+    cmd = (
+        f"docker exec --privileged {container} "
+        f"tc qdisc add dev eth0 root netem delay {delay_ms}ms"
+    )
+    os.system(cmd)
+    print(f"  WAN delay applied to {container}")
+
+
+def remove_wan_delay(resolver_name: str) -> None:
+    """Remove WAN delay from resolver container."""
+    container_map = {
+        "bind": "dnssec-bind",
+        "unbound": "dnssec-unbound",
+        "knot": "dnssec-knot",
+    }
+    container = container_map.get(resolver_name)
+    if not container:
+        return
+
+    print(f"Removing WAN delay from {container}...")
+    cmd = (
+        f"docker exec --privileged {container} "
+        f"tc qdisc del dev eth0 root"
+    )
+    os.system(cmd)
+
+
 def run_all_measurements(
     samples: int = 10000,
     output_dir: str = "../results",
+    protocol: str = "tcp",
 ) -> Tuple[List[TimingResult], List[TimingStats]]:
     """Run all resolver × outcome combinations."""
     all_results = []
@@ -317,7 +368,7 @@ def run_all_measurements(
             print(f"\nOutcome: {outcome_name} ({test_config['description']})")
             print(f"Domain: {test_config['domain']}")
 
-            results = harness.measure_outcome(outcome_name, samples=samples)
+            results = harness.measure_outcome(outcome_name, samples=samples, protocol=protocol)
             stats = DNSSecTimingHarness.compute_stats(results)
 
             all_results.extend(results)
@@ -329,7 +380,8 @@ def run_all_measurements(
             print(f"  Errors: {stats.errors}")
 
     # Save results
-    save_results(all_results, os.path.join(output_dir, "raw_timings.csv"))
+    suffix = f"_{protocol}" if protocol != "tcp" else ""
+    save_results(all_results, os.path.join(output_dir, f"raw_timings{suffix}.csv"))
 
     print(f"\n{'='*60}")
     print(f"Results saved to {output_dir}/")
@@ -379,11 +431,27 @@ def main():
         action="store_true",
         help="Test cold/warm/hot cache states",
     )
+    parser.add_argument(
+        "--protocol",
+        choices=["tcp", "udp"],
+        default="tcp",
+        help="Protocol to use (default: tcp)",
+    )
+    parser.add_argument(
+        "--wan-delay",
+        type=float,
+        default=0,
+        help="Simulate WAN delay in ms (uses tc netem on resolver container)",
+    )
 
     args = parser.parse_args()
 
+    # Apply WAN delay if requested
+    if args.wan_delay > 0:
+        apply_wan_delay(args.resolver, args.wan_delay)
+
     if args.all:
-        run_all_measurements(samples=args.samples, output_dir=args.output)
+        run_all_measurements(samples=args.samples, output_dir=args.output, protocol=args.protocol)
     elif args.cache_mode and args.resolver:
         run_cache_state_measurements(args.resolver, args.samples, args.output)
     elif args.resolver and args.outcome:
@@ -392,10 +460,11 @@ def main():
             args.outcome,
             samples=args.samples,
             warmup=args.warmup,
+            protocol=args.protocol,
         )
         stats = DNSSecTimingHarness.compute_stats(results)
 
-        print(f"\nResults for {args.resolver} / {args.outcome}:")
+        print(f"\nResults for {args.resolver} / {args.outcome} ({args.protocol.upper()}):")
         print(f"  Samples: {stats.samples}")
         print(f"  Mean: {stats.mean_ns/1e6:.3f} ms")
         print(f"  Median: {stats.median_ns/1e6:.3f} ms")
@@ -403,13 +472,16 @@ def main():
         print(f"  Errors: {stats.errors}")
 
         # Save single result
-        save_results(results, os.path.join(args.output, f"{args.resolver}_{args.outcome}.csv"))
+        suffix = f"_{args.protocol}" if args.protocol != "tcp" else ""
+        save_results(results, os.path.join(args.output, f"{args.resolver}{suffix}_{args.outcome}.csv"))
     else:
         parser.print_help()
         print("\nExamples:")
         print("  python timing_harness.py --resolver unbound --outcome valid-rsa --samples 5000")
         print("  python timing_harness.py --all --samples 10000")
         print("  python timing_harness.py --resolver bind --cache-mode --samples 1000")
+        print("  python timing_harness.py --resolver bind --outcome valid-rsa --protocol udp")
+        print("  python timing_harness.py --resolver bind --outcome valid-rsa --wan-delay 50")
 
 
 def run_cache_state_measurements(

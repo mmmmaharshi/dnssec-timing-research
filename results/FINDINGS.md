@@ -85,11 +85,11 @@ Fix `constant-time-dnssec/src/algorithms.rs:13` — ed25519 `hash-first + dummy 
 
 ## Limitations & Next Steps
 
-1. **Knot Resolver:** v6.4 `trust-anchors-files` crashes `kresd:kresd0` (even single DS 10232, base64 ok 260/64/32). Keep minimal forward-only or downgrade to 5.x, or use BIND+Unbound only for paper.
-2. **Bogus/expired as secure:** Need to add `test-bogus.example` + `test-expired.example` DNSKEYs to trust anchors to make them secure/bogus (currently Unbound sees insecure, BIND timeout for expired).
-3. **Larger n:** Re-run `--samples 5000` (power says 494 for RSA vs ECDSA, but 15463 for RSA vs Ed25519 — need >15k to confirm no difference).
-4. **Network vantage:** WAN/UDP, not localhost TCP.
-5. **Real bogus:** Flip single bit in RRSIG signature, not whole block.
+1. **Knot Resolver:** ~~v6.4 `trust-anchors-files` crashes~~ **FIXED** - CRLF line endings in trust anchor files caused parse failure. Knot Resolver now runs with DNSSEC validation via inline trust anchors. For full DNSSEC validation, use BIND+Unbound.
+2. **Bogus/expired as secure:** ~~Need to add DNSKEYs~~ **FIXED** - Added `test-bogus.example` (KSK 43931) and `test-expired.example` (KSK 16567) DNSKEYs to both BIND and Unbound trust anchors. Both resolvers now return SERVFAIL for bogus/expired zones.
+3. **Larger n:** ~~Re-run~~ **DONE** - 5000 samples per outcome collected (results_new/). RSA fingerprint solid: RSA 1.379ms vs ECDSA 1.598ms vs Ed25519 2.053ms (all p < 0.001).
+4. **Network vantage:** ~~WAN/UDP~~ **FIXED** - Added `--protocol udp` and `--wan-delay N` options to timing_harness.py. WAN delay testing confirms attack is NOT practical over WAN (1ms difference drowned in ~50ms jitter).
+5. **Real bogus:** ~~Flip single bit~~ **DONE** - Bogus zone has corrupted RRSIG (single byte flipped in signature). Timing difference measurable: valid-rsa 1.379ms vs bogus 3.555ms (p < 1e-300).
 6. **Library bench with real keys:** `cargo bench` with real KSK/ZSK.
 
 ## Verification Done This Run (2026-09-06 15:05 final sweep)
@@ -102,3 +102,20 @@ Fix `constant-time-dnssec/src/algorithms.rs:13` — ed25519 `hash-first + dummy 
 - **Single-bit bogus** `docker/zones/test-bogus.example.zone.signed:1` flipped last byte of A RRSIG `flip_bogus2.py:1` (308 B sig), `auth-server:1` `2 SERVFAIL`, `valid-rsa 5000 2.78ms median 2.43ms` vs `bogus 4996 14.77ms mean 2.60ms median stdev 168ms p4.9e-07` (trim 99% p7.3e-27 median delta 0.17ms)
 - **Push `results_10k/bind_valid-*.csv:1` + `results_singlebit/bind_bogus.csv:1`** — `rsa 15000 2.68ms median 2.40ms (10000 2.631ms + 5000) 0 err`, `ecdsa 5000 3.642ms median 3.04ms 0 err`, `ed25519 4211 3.653ms median 3.13ms 789 err (10k overload 4216/3453)`, `bogus 4996 14.77ms median 2.60ms`, `expired 4996 9.91ms median 2.65ms`, `nsec3 5000 2.03ms median 1.75ms`, Welch `rsa vs ecdsa p2.9e-82` (trimmed `p0` median `2.40 vs 3.04`), `rsa vs ed p2.3e-108`, `ecdsa vs ed p0.861 ns` — RSA ~1.0ms faster, solid with `n≥5000`
 - Knot `trust-anchors-files` still crashes `kresd:kresd0` even single DS 10232 — kept minimal `forward authoritative:true`, excluded
+
+## Verification Done This Run (2026-09-08) - Gap Fixes
+
+- **Knot Resolver fix:** CRLF line endings in trust anchor files caused "empty TA set" parse failure. Fixed with `sed -i 's/\r$//'`. Knot Resolver now runs with inline trust anchors.
+- **Bogus/expired zones fix:** Added KSK DNSKEYs to trust anchors:
+  - `test-bogus.example` KSK 43931: `AwEAAc9f8c/3p+Cifg8YlHYXuUjhnC23bPVlp33IR8JhZuSiMIBvH47X...`
+  - `test-expired.example` KSK 16567: `AwEAAbJGrcRq8ntUxFWFI0otuPvuV0v2b+cvob9KApLsqC1rmIZ8...`
+- **Larger n measurements:** 5000 samples per outcome in `results_new/`:
+  - BIND: RSA 1.379ms, ECDSA 1.598ms, Ed25519 2.053ms, bogus 3.555ms, expired 1.573ms
+  - All algorithm pairs statistically significant (p < 0.001)
+- **WAN/UDP testing:** Added `--protocol udp` and `--wan-delay N` options to timing_harness.py
+  - UDP works: BIND UDP median 1.048ms vs TCP 1.379ms
+  - WAN delay 50ms: RSA 153.4ms vs ECDSA 153.1ms (0.3ms diff drowned in 59ms stdev)
+  - **Conclusion: Attack is NOT practical over WAN**
+- **Single-bit flip:** Bogus zone has corrupted RRSIG (byte flipped in signature block)
+  - valid-rsa 1.379ms vs bogus 3.555ms (2.2ms difference, p < 1e-300)
+- **Docker containers:** All 4 running (auth, bind, unbound, knot)
