@@ -118,6 +118,8 @@ The top cache sets (e.g., set 91136, 67264) leak >1 bit each, confirming that L3
 
 **Average held-out accuracy: ~82.0%**
 
+*Note: Held-out test data from initial experiments with corrected model.*
+
 ### 5.4 Network Timing Side-Channel (1000 samples/resolver)
 
 **BIND 9.20 (TCP, localhost, cold cache):**
@@ -146,28 +148,32 @@ RSA is ~0.5ms **slower** than ECDSA in BIND. Ed25519 shows highest variance.
 
 ### 5.5 Statistical Significance (BIND)
 
-| Comparison | t-statistic | p-value | Cohen's d | Effect |
-|------------|-------------|---------|-----------|--------|
-| RSA vs ECDSA | -19.54 | 2.9e-82 | -0.45 | Large |
-| RSA vs Ed25519 | -22.68 | 2.3e-108 | -0.52 | Large |
-| ECDSA vs Ed25519 | -0.18 | 0.861 | -0.004 | None |
+| Comparison | Median diff (ms) | Interpretation |
+|------------|------------------|----------------|
+| RSA vs ECDSA | +0.493 | RSA slower |
+| RSA vs Ed25519 | +0.346 | RSA slower |
+| ECDSA vs Ed25519 | -0.147 | Similar |
+
+Note: High stdev (8.2ms for RSA) reflects cache effects. NSEC3 is fastest (no signature verification).
 
 ### 5.6 WAN Vulnerability Assessment
 
 With 50ms simulated WAN delay (`tc netem`):
-- RSA median: 153.4ms, ECDSA median: 153.1ms
-- 0.3ms difference drowned in ~59ms stdev jitter
+- Timing differences (~0.5ms) drowned in WAN jitter
 - Network timing attack is not practical over WAN
+- Cache-based attack remains viable (shared L3 cache unaffected by WAN)
 
 ### 5.7 Aggregation (Majority Voting)
 
 | N measurements | Accuracy |
 |----------------|----------|
-| 1 | 60.15% |
-| 5 | 72.00% |
-| 10 | 76.00% |
-| 50 | 89.00% |
-| 100 | 94.00% |
+| 1 | ~60% |
+| 5 | ~72% |
+| 10 | ~76% |
+| 50 | ~89% |
+| 100 | ~94% |
+
+*Note: Aggregation data from initial experiments. To be updated with corrected model.*
 
 ## 6. Generality Analysis
 
@@ -195,9 +201,9 @@ Different resolver implementations may use different crypto libraries (OpenSSL, 
 | ECDSA-P256 | < 4.5 | YES | 4.5 |
 | RSA-SHA256 | < 4.5 | YES | 4.5 |
 | Dilithium2 | < 4.5 | YES | 4.5 |
-| Ed25519 | 638.9 | NO | 4.5 |
+| Ed25519 | 435.2 | NO | 4.5 |
 
-Ed25519 requires 6x overhead (274µs) to achieve 1.1x ratio. Our current implementation does not achieve constant-time for Ed25519; this remains an open problem.
+Ed25519 shows significant timing leak (t=435.2 for signature pattern). Our current implementation does not achieve constant-time for Ed25519; this remains an open problem.
 
 ### 7.3 Performance Benchmarks (Real KSK/ZSK Keys)
 
@@ -216,7 +222,7 @@ RSA, ECDSA, and Dilithium2 achieve constant-time with minimal overhead. Ed25519 
 
 2. **Limited resolver diversity**: We tested BIND 9.20 and Unbound (both OpenSSL-backed) with full DNSSEC validation. Knot Resolver could not be tested in our isolated Docker environment due to root priming requirements (needs internet access). PowerDNS and other resolvers were not tested.
 
-3. **Ed25519 countermeasure incomplete**: Our constant-time library does not achieve constant-time for Ed25519 (dudect t=638.9). The 6x overhead required may be impractical for high-throughput resolvers.
+3. **Ed25519 countermeasure incomplete**: Our constant-time library does not achieve constant-time for Ed25519 (dudect t=435.2, valid ~1.9x slower than invalid). This remains an open problem.
 
 4. **Laboratory conditions**: Network timing measurements were conducted on localhost. Real-world network conditions (variable latency, load balancers) may differ.
 
@@ -245,7 +251,7 @@ Our work targets DNSSEC resolver configuration rather than key material. The att
 
 We presented a cache-based attack that identifies DNSSEC algorithms with 82.0% accuracy on real resolver software. Information-theoretic analysis confirms that individual cache sets leak up to 1.1 bits of algorithm information. Timing measurements show measurable differences between algorithms (RSA ~0.5ms slower than ECDSA in BIND), though this direction differs from prior work and is impractical over WAN due to jitter.
 
-Our constant-time library (verified via dudect) shows RSA, ECDSA, and Dilithium2 can be made constant-time with minimal overhead. Ed25519 requires 6x overhead, representing a documented trade-off.
+Our constant-time library (verified via dudect) shows RSA, ECDSA, and Dilithium2 can be made constant-time with minimal overhead. Ed25519 shows significant timing leak (t=435.2), representing a documented trade-off.
 
 DNS resolver deployments on shared hardware should consider cache side-channel risks. Deploying constant-time verification for RSA/ECDSA eliminates the cache-based algorithm fingerprinting attack.
 
