@@ -203,12 +203,12 @@ Ed25519 requires 6x overhead (274µs) to achieve 1.1x ratio. Our current impleme
 
 | Algorithm | Valid | Invalid | Ratio | CT? |
 |-----------|-------|---------|-------|-----|
-| RSA-SHA256 | 69.5ns | 70.6ns | 0.98x | YES |
-| ECDSA-P256 | 5.1ns | 4.8ns | 1.06x | YES |
-| Dilithium2 | 48.2µs | 35.9µs | 1.34x | YES |
-| Ed25519 | 69.2µs | 36.3µs | 1.91x | NO |
+| RSA-SHA256 | 81.1ns | 81.5ns | 0.99x | YES |
+| ECDSA-P256 | 5.6ns | 6.2ns | 0.90x | YES |
+| Dilithium2 | 4.0µs | 3.8µs | 1.05x | YES |
+| Ed25519 | 91.0µs | 48.4µs | 1.88x | NO |
 
-RSA, ECDSA, and Dilithium2 achieve constant-time with minimal overhead. Ed25519 trade-off documented.
+RSA, ECDSA, and Dilithium2 achieve constant-time with minimal overhead. Ed25519 trade-off documented (valid is ~1.9x slower than invalid).
 
 ## 8. Limitations
 
