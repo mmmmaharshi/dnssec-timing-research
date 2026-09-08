@@ -2,24 +2,24 @@
 
 ## Abstract
 
-DNSSEC validating resolvers perform cryptographic signature verification for every signed domain, processing billions of queries daily on shared cloud infrastructure. We present a cache-based side-channel attack that identifies which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a co-located resolver is using. Our Prime+Probe technique on shared L3 cache achieves **97.95% accuracy** with 2000 measurements. We also demonstrate a network timing side-channel: RSA verifies ~1ms faster than ECDSA/Ed25519 in laboratory conditions (p < 1e-82), though this becomes impractical over WAN due to jitter. We demonstrate both attacks on real BIND and Unbound resolvers serving DNSSEC-signed zones and propose a constant-time verification primitive (partially verified via dudect statistical analysis) as a countermeasure. This work has implications for DNS resolver deployments on shared hardware where co-location is feasible.
+We present a cache-based side-channel attack that identifies which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a co-located resolver is using. Our Prime+Probe technique on shared L3 cache achieves **97.95% accuracy** with 2000 measurements. RSA verifies ~1ms faster than ECDSA/Ed25519 in laboratory conditions (p < 1e-82), though this becomes impractical over WAN due to jitter. We demonstrate both attacks on real BIND and Unbound resolvers and propose a constant-time verification primitive (partially verified via dudect statistical analysis) as a countermeasure.
 
 ## 1. Introduction
 
-DNSSEC provides data origin authentication for DNS responses via digital signatures. Major public resolvers—Cloudflare 1.1.1.1, Google 8.8.8.8, AWS Route53—validate DNSSEC for billions of queries daily. These resolvers run on shared cloud hardware, creating potential for co-residence attacks.
+Major public resolvers—Cloudflare 1.1.1.1, Google 8.8.8.8, AWS Route53—validate DNSSEC on shared cloud hardware. Co-residence is feasible.
 
-**Key Insight**: Different DNSSEC algorithms have distinct computational structures:
+Different DNSSEC algorithms have distinct computational structures:
 - RSA-SHA256: Montgomery multiplication with table lookups
 - ECDSA-P256: Point multiplication (double-and-add)
 - Ed25519: Fixed-base scalar multiplication (SHA-512 prehash)
 
-These produce **measurable differences in L3 cache access patterns** that an attacker can detect via Prime+Probe.
+These produce measurable differences in L3 cache access patterns. An attacker can detect them via Prime+Probe.
 
 **Contributions:**
-1. **Novel application**: Cache-based DNSSEC algorithm identification on real resolver software
-2. **Real validation**: 97.95% accuracy on BIND resolver with held-out test data
-3. **Partial CT proof**: dudect verification that ECDSA/RSA can be constant-time (Ed25519 trade-off documented)
-4. **Countermeasure**: Rust library with low overhead for RSA/ECDSA/Dilithium2
+1. Cache-based DNSSEC algorithm identification on real resolver software
+2. 97.95% accuracy on BIND resolver with held-out test data
+3. dudect verification that ECDSA/RSA can be constant-time (Ed25519 trade-off documented)
+4. Rust countermeasure library with low overhead for RSA/ECDSA/Dilithium2
 
 ## 2. Background
 
@@ -37,7 +37,7 @@ Prime+Probe attack on Last-Level Cache (LLC):
 - Victim: DNSSEC-validating resolver
 - Goal: Determine which algorithm signed an arbitrary domain
 
-**Assumptions**: Attacker can achieve co-location (e.g., via cloud instance placement), can measure cache timing (requires `rdtsc` and `clflush` access), and can trigger victim validation via DNS queries.
+Attacker can achieve co-location (e.g., via cloud instance placement), measure cache timing (`rdtsc` and `clflush`), and trigger victim validation via DNS queries.
 
 ## 3. Attack Design
 
@@ -93,7 +93,7 @@ Random Forest classifier with 64 features extracted from timing vectors. 5-fold 
 
 **5-fold cross-validation: 97.95% (±0.53%)**
 
-### 5.2 Held-Out Test (Most Rigorous)
+### 5.2 Held-Out Test
 
 | Train/Test Split | Accuracy |
 |------------------|----------|
@@ -117,7 +117,7 @@ Random Forest classifier with 64 features extracted from timing vectors. 5-fold 
 | expired | 4996 | 2.650 | 9.910 | 45.000 |
 | nsec3 | 5000 | 1.756 | 2.030 | 2.500 |
 
-**RSA fingerprint: ~1ms faster than ECDSA/Ed25519 (p < 1e-82)**
+RSA is ~1ms faster than ECDSA/Ed25519 (p < 1e-82).
 
 ### 5.4 Statistical Significance (BIND)
 
@@ -131,8 +131,8 @@ Random Forest classifier with 64 features extracted from timing vectors. 5-fold 
 
 With 50ms simulated WAN delay (`tc netem`):
 - RSA median: 153.4ms, ECDSA median: 153.1ms
-- **Difference: 0.3ms drowned in ~59ms stdev jitter**
-- **Conclusion: Network timing attack is NOT practical over WAN**
+- 0.3ms difference drowned in ~59ms stdev jitter
+- Network timing attack is not practical over WAN
 
 ### 5.6 Aggregation (Majority Voting)
 
@@ -146,14 +146,14 @@ With 50ms simulated WAN delay (`tc netem`):
 
 ## 6. Generality Analysis
 
-**The attack targets CPU cache behavior during cryptographic operations.** Any DNSSEC-validating resolver performs the same fundamental cryptographic operations:
+The attack targets CPU cache behavior during cryptographic operations. Any DNSSEC-validating resolver performs the same fundamental operations:
 - RSA: Modular exponentiation
 - ECDSA: Point multiplication
 - Ed25519: Fixed-base scalar multiplication
 
-These operations have distinct memory access patterns that create distinct cache signatures. We validated this on BIND 9.20 and Unbound (both using OpenSSL-backed crypto). Testing on additional resolver implementations (e.g., PowerDNS, Knot Resolver with full DNSSEC) remains future work.
+These have distinct memory access patterns that create distinct cache signatures. We validated this on BIND 9.20 and Unbound (both OpenSSL-backed). Testing on additional resolver implementations (PowerDNS, Knot Resolver with full DNSSEC) remains future work.
 
-**Limitations on generality**: Different resolver implementations may use different crypto libraries (OpenSSL, Botan, etc.) which could affect cache patterns. Our results demonstrate the attack works for OpenSSL-backed resolvers; generalization to other crypto backends requires further validation.
+Different resolver implementations may use different crypto libraries (OpenSSL, Botan, etc.) which could affect cache patterns. Our results demonstrate the attack works for OpenSSL-backed resolvers; generalization to other crypto backends requires further validation.
 
 ## 7. Countermeasure: Constant-Time DNSSEC
 
@@ -172,7 +172,7 @@ These operations have distinct memory access patterns that create distinct cache
 | Dilithium2 | < 4.5 | YES | 4.5 |
 | Ed25519 | 638.9 | NO | 4.5 |
 
-**Ed25519 requires 6x overhead (274µs) to achieve 1.1x ratio.** Our current implementation does not achieve constant-time for Ed25519; this remains an open problem.
+Ed25519 requires 6x overhead (274µs) to achieve 1.1x ratio. Our current implementation does not achieve constant-time for Ed25519; this remains an open problem.
 
 ### 7.3 Performance Benchmarks (Real KSK/ZSK Keys)
 
@@ -183,7 +183,7 @@ These operations have distinct memory access patterns that create distinct cache
 | Dilithium2 | 48.2µs | 35.9µs | 1.34x | YES |
 | Ed25519 | 69.2µs | 36.3µs | 1.91x | NO |
 
-**RSA, ECDSA, and Dilithium2 achieve constant-time with minimal overhead. Ed25519 trade-off documented.**
+RSA, ECDSA, and Dilithium2 achieve constant-time with minimal overhead. Ed25519 trade-off documented.
 
 ## 8. Limitations
 
@@ -212,19 +212,15 @@ Cache side-channel attacks have been extensively studied:
 | Paccagnella et al. | 2021 | Lord of the Ring(s) | Cross-SMT side channels |
 | **This work** | **2026** | **Algorithm identification** | **97.95% accuracy** |
 
-Our work differs in targeting DNSSEC resolver configuration rather than key material. The attack identifies *which algorithm* is used, not the secret key itself.
+Our work targets DNSSEC resolver configuration rather than key material. The attack identifies which algorithm is used, not the secret key itself.
 
 ## 10. Conclusion
 
-We presented a cache-based attack that identifies DNSSEC algorithms with **97.95% accuracy** on real resolver software. Additionally, we demonstrated a network timing side-channel showing RSA verifies ~1ms faster than ECDSA/Ed25519 in laboratory conditions (p < 1e-82), though this is impractical over WAN due to jitter. The attacks are:
-- **Practical in lab**: Works on real BIND and Unbound resolvers
-- **Validated**: 97.95% accuracy with held-out test data
-- **Significant**: p < 1e-82, large effect sizes
-- **Partially mitigatable**: CT verification works for RSA/ECDSA/Dilithium2; Ed25519 remains open
+We presented a cache-based attack that identifies DNSSEC algorithms with 97.95% accuracy on real resolver software. RSA verifies ~1ms faster than ECDSA/Ed25519 in laboratory conditions (p < 1e-82), though this is impractical over WAN due to jitter.
 
 Our constant-time library (verified via dudect) shows RSA, ECDSA, and Dilithium2 can be made constant-time with minimal overhead. Ed25519 requires 6x overhead, representing a documented trade-off.
 
-**Impact**: DNS resolver deployments on shared hardware should consider cache side-channel risks. Deploying constant-time verification for RSA/ECDSA eliminates the cache-based algorithm fingerprinting attack.
+DNS resolver deployments on shared hardware should consider cache side-channel risks. Deploying constant-time verification for RSA/ECDSA eliminates the cache-based algorithm fingerprinting attack.
 
 ## References
 
