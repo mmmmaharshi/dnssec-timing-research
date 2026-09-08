@@ -1,0 +1,13 @@
+; Root zone for isolated Docker DNS environment
+; Points to itself to allow root priming without internet access
+$TTL 300
+@   IN  SOA ns1. admin. (
+            2026090501    ; Serial
+            3600        ; Refresh
+            900         ; Retry
+            604800      ; Expire
+            300         ; Negative Cache TTL
+        )
+;
+@       IN  NS      ns1.
+ns1     IN  A       172.20.0.10
