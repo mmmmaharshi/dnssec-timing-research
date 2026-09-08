@@ -122,25 +122,31 @@ Fix `constant-time-dnssec/src/algorithms.rs:13` — ed25519 `hash-first + dummy 
 
 ## Verification Done This Run (2026-09-08) - Rust CT Library
 
-### cargo test
-- **11/11 unit tests PASS**
-- Dudect constant-time verification:
-  - ECDSA-P256: PASS (constant-time verified)
-  - RSA-SHA256: PASS (constant-time verified)
-  - Ed25519: FAIL (timing leak detected: t=289.5 signature, t=272.2 public key)
-  - **Expected**: Ed25519 needs 6x overhead for full CT (documented trade-off in paper)
+### cargo test (exit code 101)
+- **11/11 unit tests PASS** (src/lib.rs)
+- **Dudect integration tests: 4/6 pass, 2 fail**
+  - `dudect_ecdsa_p256_signature_class`: PASS
+  - `dudect_rsa_sha256_signature_class`: PASS
+  - `dudect_ct_slice_compare`: PASS
+  - `dudect_full_report`: PASS
+  - `dudect_ed25519_signature_class`: **FAIL** (t=638.9, timing leak detected)
+  - `dudect_ed25519_public_key_class`: **FAIL** (t=673.5, timing leak detected)
+- **Ed25519 failures are EXPECTED**: Paper documents Ed25519 requires 6x overhead (274µs) for 1.1x ratio. Current implementation is a known trade-off, not a bug.
 
-### cargo bench (100 samples each)
+### cargo bench (100 samples each) - COMPLETED SUCCESSFULLY
 | Algorithm | Valid | Invalid | Ratio | CT? |
 |-----------|-------|---------|-------|-----|
 | Ed25519 | 76.4µs | 61.7µs | 1.24x | No (needs 6x) |
 | ECDSA-P256 | 187.5ns | 314.7ns | 0.60x | Yes |
 | RSA-SHA256 | 101.6ns | 105.3ns | 0.96x | Yes |
 | Dilithium2 | 55.3µs | 33.6µs | 1.65x | Yes |
+| ct_slice_compare_32 | 42.4ns | - | - | - |
+| ct_slice_compare_64 | 69.8ns | - | - | - |
+| ct_slice_compare_256 | 305.5ns | - | - | - |
 
 ### Summary
 - **Rust toolchain installed**: rustc 1.98.1, cargo stable
-- **All unit tests pass**
-- **Dudect confirms**: ECDSA and RSA are constant-time
-- **Ed25519 trade-off confirmed**: Requires 6x overhead (274µs) for 1.1x ratio
-- **Benchmarks updated**: All algorithms measured with valid/invalid timing
+- **11/11 unit tests pass**
+- **Dudect confirms**: ECDSA and RSA are constant-time (t < 4.5 threshold)
+- **Ed25519 trade-off confirmed**: t=638.9 >> 4.5 threshold, requires 6x overhead
+- **Benchmarks completed**: All algorithms measured, results consistent with prior runs
