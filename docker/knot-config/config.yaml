@@ -1,11 +1,31 @@
+# Knot Resolver configuration for DNSSEC timing research
+# Docker image: cznic/knot-resolver:latest
+#
+# Note: Knot Resolver uses Lua config (kresd.conf) by default.
+# This YAML file is kept for reference. The active config is config.lua.
+
 workers: 1
+
 network:
   listen:
     - interface: 0.0.0.0@53
+
+# DNSSEC validation with trust anchors for our test zones
 dnssec:
-  enable: false
+  trust-anchors:
+    - file: /etc/knot-resolver/trust-anchors/test-valid-rsa.example
+    - file: /etc/knot-resolver/trust-anchors/test-valid-ecdsa.example
+    - file: /etc/knot-resolver/trust-anchors/test-valid-ed25519.example
+    - file: /etc/knot-resolver/trust-anchors/test-nsec3.example
+
+# Forward to authoritative server
 forward:
   - subtree: "."
     servers: [172.20.0.10]
     options:
       authoritative: true
+
+# Disable caching for consistent timing measurements
+cache:
+  size: 0
+  storage: none

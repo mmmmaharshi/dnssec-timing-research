@@ -48,14 +48,21 @@ gcc -O2 -o cache_probe cache_probe.c -lpthread
 cd docker
 docker-compose up -d
 # Wait for containers to start
-sleep 10
+sleep 15
 ```
 
 This starts:
 - `dnssec-auth` — Authoritative server with signed zones (port 15353)
 - `dnssec-bind` — BIND resolver with DNSSEC validation (port 15354)
 - `dnssec-unbound` — Unbound resolver (port 15355)
-- `dnssec-knot` — Knot Resolver (port 15356)
+- `dnssec-knot` — Knot Resolver with DNSSEC validation (port 15356)
+
+Verify all resolvers are running:
+
+```bash
+cd docker
+python test_resolvers.py
+```
 
 ### 3. Run Cache Attack Measurement
 
@@ -183,9 +190,8 @@ dnssec-timing-research/
 ## Known Limitations
 
 1. **Platform-specific**: `cache_probe.c` requires Linux (uses `rdtsc`, `clflush`, `sched_setaffinity`)
-2. **Knot Resolver**: DNSSEC validation was unstable in Docker environment
-3. **Ed25519 CT**: Not yet constant-time (6x overhead required)
-4. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
+2. **Ed25519 CT**: Not yet constant-time (6x overhead required)
+3. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
 
 ---
 

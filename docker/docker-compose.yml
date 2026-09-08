@@ -54,7 +54,7 @@ services:
     image: cznic/knot-resolver:latest
     container_name: dnssec-knot
     volumes:
-      - ./knot-config/config.yaml:/etc/knot-resolver/config.yaml:ro
+      - ./knot-config/config.lua:/etc/knot-resolver/kresd.conf:ro
       - ./trust-anchors:/etc/knot-resolver/trust-anchors:ro
     ports:
       - "15356:53/udp"
@@ -64,6 +64,13 @@ services:
         ipv4_address: 172.20.0.40
     depends_on:
       - auth-server
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kresd", "-c", "/etc/knot-resolver/kresd.conf", "--health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 networks:
   dns-test:

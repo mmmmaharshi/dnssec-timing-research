@@ -203,7 +203,7 @@ RSA, ECDSA, and Dilithium2 achieve constant-time with minimal overhead. Ed25519 
 
 1. **Co-location requirement**: The cache attack requires attacker and victim on the same physical host. Modern cloud environments implement countermeasures (core pinning, cache partitioning) that may reduce feasibility. We tested on Docker containers on a single host; real cloud VM co-location was not evaluated.
 
-2. **Limited resolver diversity**: We tested BIND 9.20 and Unbound (both OpenSSL-backed). Knot Resolver DNSSEC validation was unstable in our Docker environment. PowerDNS and other resolvers were not tested.
+2. **Limited resolver diversity**: We tested BIND 9.20 and Unbound (both OpenSSL-backed). Knot Resolver DNSSEC validation is now functional in our Docker environment. PowerDNS and other resolvers were not tested.
 
 3. **Ed25519 countermeasure incomplete**: Our constant-time library does not achieve constant-time for Ed25519 (dudect t=638.9). The 6x overhead required may be impractical for high-throughput resolvers.
 
