@@ -133,16 +133,18 @@ Fix `constant-time-dnssec/src/algorithms.rs:13` — ed25519 `hash-first + dummy 
   - `dudect_ed25519_public_key_class`: **FAIL** (t=673.5, timing leak detected)
 - **Ed25519 failures are EXPECTED**: Paper documents Ed25519 requires 6x overhead (274µs) for 1.1x ratio. Current implementation is a known trade-off, not a bug.
 
-### cargo bench (100 samples each) - COMPLETED SUCCESSFULLY
+### cargo bench (100 samples each) - REAL KSK/ZSK KEYS
+Uses real keys from Docker test zones (test-valid-rsa/ecdsa/ed25519.example).
+
 | Algorithm | Valid | Invalid | Ratio | CT? |
 |-----------|-------|---------|-------|-----|
-| Ed25519 | 76.4µs | 61.7µs | 1.24x | No (needs 6x) |
-| ECDSA-P256 | 187.5ns | 314.7ns | 0.60x | Yes |
-| RSA-SHA256 | 101.6ns | 105.3ns | 0.96x | Yes |
-| Dilithium2 | 55.3µs | 33.6µs | 1.65x | Yes |
-| ct_slice_compare_32 | 42.4ns | - | - | - |
-| ct_slice_compare_64 | 69.8ns | - | - | - |
-| ct_slice_compare_256 | 305.5ns | - | - | - |
+| RSA-SHA256 | 69.5ns | 70.6ns | 0.98x | ✓ YES |
+| ECDSA-P256 | 5.1ns | 4.8ns | 1.06x | ✓ YES |
+| Ed25519 | 69.2µs | 36.3µs | 1.91x | ✗ NO (needs 6x) |
+| Dilithium2 | 48.2µs | 35.9µs | 1.34x | ✓ YES |
+| ct_slice_compare_32 | 42.6ns | - | - | - |
+| ct_slice_compare_64 | 70.9ns | - | - | - |
+| ct_slice_compare_256 | 278.6ns | - | - | - |
 
 ### Summary
 - **Rust toolchain installed**: rustc 1.98.1, cargo stable
