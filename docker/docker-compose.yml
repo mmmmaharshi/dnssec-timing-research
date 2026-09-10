@@ -51,11 +51,10 @@ services:
 
   # Knot Resolver
   knot-resolver:
-    image: cznic/knot-resolver:latest
+    build:
+      context: .
+      dockerfile: knot-config/Dockerfile
     container_name: dnssec-knot
-    volumes:
-      - ./knot-config/config.yaml:/run/knot-resolver/kresd0.conf
-      - ./trust-anchors:/etc/knot-resolver/trust-anchors
     ports:
       - "15356:53/udp"
       - "15356:53/tcp"
@@ -66,7 +65,7 @@ services:
       - auth-server
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "/usr/sbin/kresd", "-c", "/run/knot-resolver/kresd0.conf", "--health"]
+      test: ["CMD", "kresd", "-c", "/config/kresd.conf", "--health"]
       interval: 10s
       timeout: 5s
       retries: 3
