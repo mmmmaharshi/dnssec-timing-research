@@ -17,6 +17,17 @@ docker/zones/dsset-*
 docker/zones/test-*.zone
 docker/zones/test-*.zone.signed
 
+# Generated zone/key artifacts 
+docker/*.zone.signed
+docker/unbound-config/dev/
+docker/unbound-config/var/
+docker/unbound-config/unbound.pid
+
+# Test artifacts
+harness/cache_probe
+harness_run_*.log
+test_*.py
+
 # IDE
 .vscode/
 .idea/
