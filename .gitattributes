@@ -1,0 +1,4 @@
+# Git attributes: keep shell scripts and workflows LF-only
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

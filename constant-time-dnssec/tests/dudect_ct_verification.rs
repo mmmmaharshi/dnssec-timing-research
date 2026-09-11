@@ -429,6 +429,30 @@ fn dudect_ct_slice_compare() {
     assert!(is_ct, "ct_slice_compare is NOT constant-time");
 }
 
+/// A/A null control: both classes verify the *identical* input.
+///
+/// Any statistically significant t here is measurement bias, not a code
+/// leak — this bounds the host noise floor and must pass wherever the other
+/// dudect tests are expected to run (CI, VPS campaigns, local runs).
+#[test]
+fn dudect_aa_null_control() {
+    let (sig, _other_sig, data) = generate_ed25519_test_inputs();
+    let data_clone = data.clone();
+    let sig_clone = sig.clone();
+
+    let class_0 = move || {
+        let result = verify_ed25519(&sig, &data_clone);
+        std::hint::black_box(result);
+    };
+    let class_1 = move || {
+        let result = verify_ed25519(&sig_clone, &data);
+        std::hint::black_box(result);
+    };
+
+    let is_null = run_dudect_test("Ed25519 A/A null control (same input both classes)", class_0, class_1);
+    assert!(is_null, "A/A null control failed: host measurement noise floor is too high (this is not a code leak; re-run on a quieter host or with more campaigns)");
+}
+
 /// Comprehensive dudect report
 #[test]
 fn dudect_full_report() {

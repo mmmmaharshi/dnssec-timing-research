@@ -125,6 +125,50 @@ cargo test --release
 
 Expected: RSA-SHA256, ECDSA-P256, Ed25519, and Dilithium2 pass dudect (median t < 4.5 across 5 campaigns). Ed25519 no longer uses `ed25519-dalek`'s variable-time `verify()`; it evaluates the RFC 8032 equation with `curve25519-dalek` constant-time primitives plus input-independent floor multiplications. Run with `--test-threads=1` (see Known Limitations for the harness methodology). See §7 of FINAL_PAPER.md for the obstacle analysis and this countermeasure.
 
+The suite includes an **A/A null control** (`dudect_aa_null_control`): both classes verify the identical input, so any significant t there bounds the host noise floor rather than indicating a leak.
+
+### Dudect campaign (recommended: replication over single draws)
+
+A single dudect run is a noisy draw; a real leak fails in *every* repetition
+while host noise does not replicate. The campaign script runs the full suite
+N times and decides by majority vote, printing per-test median/worst t:
+
+```bash
+cd constant-time-dnssec
+cargo build --release
+./dudect_campaign.sh 10      # 10 repetitions, ~3 min
+```
+
+Exit codes: 0 = constant-time (no test failed in a majority of runs),
+1 = constant-time regression, 2 = infrastructure failure. Logs land in
+`dudect_campaign/` (gitignored).
+
+### No-local-hardware options
+
+1. **GitHub Actions (free, already wired)**: `.github/workflows/ct-verification.yml`
+   builds the crate, gates on the `ed25519-dalek` cross-check, then runs
+   `./dudect_campaign.sh 5` on `ubuntu-latest` and uploads the raw logs as an
+   artifact. Shared CI runners are noisy by design — which is exactly what
+   the campaign decision rule tolerates. Push to `master` (or use
+   *Actions → CT Verification → Run workflow*) and read the verdict from the
+   job log / `dudect-campaign` artifact.
+2. **Cheapest possible dedicated run (~$0.01–0.02/hr)**: rent one vCPU VPS
+   (Hetzner CX11-class, DigitalOcean, Vultr), then:
+
+   ```bash
+   sudo apt-get install -y build-essential curl
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+   git clone <repo> && cd <repo>/constant-time-dnssec
+   cargo build --release && ./dudect_campaign.sh 20
+   ```
+
+   Twenty repetitions on an idle dedicated vCPU (~6 min, well under $0.01 of
+   credit) is stronger evidence than any number of runs on a shared Windows
+   host. `dudect_campaign.sh` is self-contained and prints the verdict.
+3. **Interpretation**: treat "passed 20/20 repetitions on an idle Linux host,
+   A/A null control t < 1" as the paper's constant-time claim; single runs on
+   a noisy desktop are only ever sanity checks.
+
 ---
 
 ## Data Format

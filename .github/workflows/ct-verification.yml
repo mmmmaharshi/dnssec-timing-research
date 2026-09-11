@@ -1,0 +1,41 @@
+name: CT Verification
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  dudect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        working-directory: constant-time-dnssec
+        run: cargo build --release
+
+      - name: Cross-check against ed25519-dalek (correctness gate)
+        working-directory: constant-time-dnssec
+        run: cargo test --release --lib
+
+      - name: Run dudect campaign (5 repetitions, majority vote)
+        working-directory: constant-time-dnssec
+        shell: bash
+        run: |
+          chmod +x dudect_campaign.sh
+          ./dudect_campaign.sh 5
+
+      - name: Upload dudect reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dudect-campaign
+          path: constant-time-dnssec/dudect_campaign/
+          retention-days: 30
