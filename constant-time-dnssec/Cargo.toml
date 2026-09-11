@@ -11,7 +11,9 @@ readme = "../../README.md"
 subtle = "2.5"
 
 # Cryptographic signature verification
+curve25519-dalek = { version = "4.1", features = ["digest", "group", "rand_core"] }
 ed25519-dalek = { version = "2.1", features = ["digest", "rand_core"] }
+rand_core = { version = "0.6" }
 rsa = { version = "0.9", features = ["sha2"] }
 p256 = { version = "0.13", features = ["ecdsa"] }
 sha2 = "0.10"
