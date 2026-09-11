@@ -14,10 +14,8 @@ def test_resolver(port, name, zone, expected_ad=True):
     qname = dns.name.from_text(f'test.{zone}')
     query = dns.message.make_query(qname, dns.rdatatype.A)
     query.flags |= dns.flags.CD  # Checking Disabled to get raw response
-    query.edns = 0
-    query.payload = 4096
-    # Request DO bit for DNSSEC
-    query.options.append(dns.edns.GenericOption(dns.edns.NSID, b''))
+    # Set DO bit via EDNS0 to request DNSSEC records
+    query.use_edns(edns=0, ednsflags=0x8000, payload=4096)
 
     try:
         response = dns.query.tcp(query, '127.0.0.1', port=port, timeout=5)

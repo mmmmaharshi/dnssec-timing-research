@@ -129,6 +129,8 @@ class DNSSecTimingHarness:
             qname = dns.name.from_text(domain)
             query = dns.message.make_query(qname, dns.rdatatype.A)
             query.flags |= dns.flags.AD  # Request AD bit
+            # Set DO bit via EDNS0 to request DNSSEC records
+            query.use_edns(edns=0, ednsflags=0x8000, payload=4096)
 
             # Measure time
             start = time.perf_counter_ns()
