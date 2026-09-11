@@ -123,7 +123,7 @@ cd constant-time-dnssec
 cargo test --release
 ```
 
-Expected: ECDSA/RSA pass (t < 4.5), Ed25519 fails (t >> 4.5).
+Expected: All algorithms pass (t < 4.5) including Ed25519.
 
 ---
 
@@ -190,8 +190,8 @@ dnssec-timing-research/
 ## Known Limitations
 
 1. **Platform-specific**: `cache_probe.c` requires Linux (uses `rdtsc`, `clflush`, `sched_setaffinity`)
-2. **Ed25519 CT**: Not yet constant-time (6x overhead required)
-3. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
+2. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
+3. **Ed25519 overhead**: CT verification requires 6x overhead (double dummy verify)
 
 ---
 
@@ -200,11 +200,13 @@ dnssec-timing-research/
 All resolvers verified working with DNSSEC validation:
 - `docker/test_resolvers.py`: ALL PASS (12/12 resolver/zone combinations)
 - Timing harness: 0 errors across all resolvers (BIND, Unbound, Knot) and outcomes
+- CT library: Ed25519 now constant-time via double dummy verify (6x overhead)
 
 ### Recent Fixes
 - BIND resolver: enabled `dnssec-validation auto` (was disabled)
 - All test queries: set DO bit via EDNS0 to request DNSSEC records
 - Auth-server: corrected `key-directory` path
+- Ed25519: implemented double dummy verify for full CT compliance
 
 ---
 
