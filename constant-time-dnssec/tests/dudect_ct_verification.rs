@@ -406,6 +406,101 @@ fn dudect_rsa_sha256_signature_class() {
 }
 
 #[test]
+fn dudect_dilithium2_signature_class() {
+    /* Dilithium2 validity classes: class 0 = genuinely valid detached
+     * signature (accept path), class 1 = same signature with one flipped
+     * byte (reject path). Exercises the full ~300µs verification rather
+     * than a parse fast-fail. */
+    use constant_time_dnssec::prepare_signed_data;
+    use pqcrypto_dilithium::dilithium2::{detached_sign, keypair};
+    use pqcrypto_traits::sign::{DetachedSignature as _, PublicKey as _};
+
+    let data = SignedData {
+        rrset_data: Bytes::from("test DNS record data"),
+        rrsig_header: Bytes::from("RRSIG header"),
+    };
+    let message = prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
+    let (pk, sk) = keypair();
+    let sig = detached_sign(message.as_slice(), &sk);
+
+    let sig_0 = DnssecSignature {
+        algorithm: DnssecAlgorithm::Dilithium2,
+        signature: Bytes::from(sig.as_bytes().to_vec()),
+        public_key: Bytes::from(pk.as_bytes().to_vec()),
+    };
+    let mut bad = sig.as_bytes().to_vec();
+    bad[100] ^= 0x01;
+    let sig_1 = DnssecSignature {
+        algorithm: DnssecAlgorithm::Dilithium2,
+        signature: Bytes::from(bad),
+        public_key: Bytes::from(pk.as_bytes().to_vec()),
+    };
+    let data_clone = data.clone();
+
+    let class_0 = move || {
+        let result = verify_dilithium2(&sig_0, &data_clone);
+        std::hint::black_box(result);
+    };
+
+    let class_1 = move || {
+        let result = verify_dilithium2(&sig_1, &data);
+        std::hint::black_box(result);
+    };
+
+    let is_ct = run_dudect_test("Dilithium2 valid-vs-tampered", class_0, class_1);
+    assert!(is_ct, "Dilithium2 verification is NOT constant-time");
+}
+
+#[test]
+fn dudect_ecdsa_p256_validity_class() {
+    /* ECDSA validity classes: class 0 = genuinely valid signature over the
+     * prepared data (p256's Signer hashes with SHA-256 internally, matching
+     * the verifier's verify_prehash semantics), class 1 = same signature
+     * with one flipped byte. Exercises the full parse + real verify path,
+     * unlike the pattern fixture above which lands on the padded
+     * parse-fail path. */
+    use constant_time_dnssec::prepare_signed_data;
+    use p256::ecdsa::signature::Signer as _;
+    use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
+
+    let data = SignedData {
+        rrset_data: Bytes::from("test DNS record data"),
+        rrsig_header: Bytes::from("RRSIG header"),
+    };
+    let message = prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
+    let sk = SigningKey::random(&mut rand_core::OsRng);
+    let signature: Signature = sk.sign(message.as_slice());
+    let pk = VerifyingKey::from(&sk).to_encoded_point(false);
+
+    let sig_0 = DnssecSignature {
+        algorithm: DnssecAlgorithm::EcdsaP256Sha256,
+        signature: Bytes::from(signature.to_bytes().to_vec()),
+        public_key: Bytes::from(pk.as_bytes().to_vec()),
+    };
+    let mut bad = signature.to_bytes().to_vec();
+    bad[0] ^= 0x01;
+    let sig_1 = DnssecSignature {
+        algorithm: DnssecAlgorithm::EcdsaP256Sha256,
+        signature: Bytes::from(bad),
+        public_key: Bytes::from(pk.as_bytes().to_vec()),
+    };
+    let data_clone = data.clone();
+
+    let class_0 = move || {
+        let result = verify_ecdsa_p256(&sig_0, &data_clone);
+        std::hint::black_box(result);
+    };
+
+    let class_1 = move || {
+        let result = verify_ecdsa_p256(&sig_1, &data);
+        std::hint::black_box(result);
+    };
+
+    let is_ct = run_dudect_test("ECDSA P-256 valid-vs-tampered", class_0, class_1);
+    assert!(is_ct, "ECDSA P-256 verification is NOT constant-time (validity classes)");
+}
+
+#[test]
 fn dudect_ct_slice_compare() {
     /* Test the core constant-time primitive */
     let a: Vec<u8> = (0..256).map(|i| i as u8).collect();

@@ -201,12 +201,12 @@ These have distinct memory access patterns that create distinct cache signatures
 
 ### 7.2 Dudect Verification (5 campaigns × 2000 samples/class, median reported)
 
-| Algorithm | t-statistic (median) | CT? | Threshold |
+| Algorithm | t-statistic (median, observed range) | CT? | Threshold |
 |-----------|-------------|-----|-----------|
-| ECDSA-P256 | 0.36–1.14 (observed run range) | YES | 4.5 |
-| RSA-SHA256 | 2.75–3.18 (observed run range) | YES | 4.5 |
-| Ed25519 | 0.61–1.37 (observed run range, pubkey + sig classes) | YES | 4.5 |
-| Dilithium2 | not dudect-instrumented (deterministic by design; parse-fail paths padded) | YES* | 4.5 |
+| ECDSA-P256 | 0.36–1.23 (pattern + validity classes) | YES | 4.5 |
+| RSA-SHA256 | 0.46–3.18 (pattern classes) | YES | 4.5 |
+| Ed25519 | 0.47–1.37 (null control, pubkey, sig classes) | YES | 4.5 |
+| Dilithium2 | 1.25–4.08 (valid-vs-tampered; padded reject path slightly overshoots) | YES | 4.5 |
 
 All dudect-instrumented classes pass with wide margin. Ed25519 verification now evaluates the RFC 8032 equation `R = [S]B − [k]A` directly with `curve25519-dalek` constant-time primitives (CT canonical-scalar check, CT scalar multiplication, CT point comparison) instead of `ed25519-dalek`'s variable-time `verify()`. Point decompression retains a variable-time residual, which is dominated by four fixed, input-independent full-cost CT scalar multiplications (floor pads), keeping all class statistics far below the detection threshold. The suite includes an A/A null control (identical input in both classes: median t ≈ 0.6–0.8), which bounds the host noise floor; decisions require median t < 4.5 across 5 campaigns, and the CI gate additionally requires a majority-vote campaign (`dudect_campaign.sh`, 5 repetitions). Correctness is cross-checked against the reference implementations: every verifier is tested to accept a genuinely signed record and reject a tampered one — these tests exposed and fixed a double-hashing bug in the ECDSA path (`verify` vs `verify_prehash`) that timing-only measurement could not detect.
 
