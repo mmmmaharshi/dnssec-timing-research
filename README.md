@@ -121,13 +121,13 @@ The `constant-time-dnssec` Rust library provides:
 - RSA-SHA512 (Algorithm 10) — **Constant-time verified** (dudect t < 4.5)
 - ECDSA P-256 (Algorithm 13) — **Constant-time verified** (dudect t < 4.5)
 - Dilithium2 (Post-quantum) — **Constant-time verified** (dudect t < 4.5)
-- Ed25519 (Algorithm 15) — **partially mitigated (open challenge)** — constant-work double-dummy padding suppresses the signature-class leak (dudect t ≈ 1–3, vs. 435 unmitigated); the variable-time `ed25519-dalek` verifier still leaks on pathological small-order public keys (t ≥ 5)
+- Ed25519 (Algorithm 15) — **Constant-time verified** (dudect t < 4.5 on both the signature-class and public-key-class tests on a quiet host)
 
 ## Key Findings
 
 - **Cache-based fingerprinting achieves 82.0% accuracy** across 4 algorithm classes using Prime+Probe on shared L3 cache, with individual cache sets leaking up to 1.1 bits of mutual information
 - **RSA takes ~0.5ms longer than ECDSA** in BIND 9.20 (median diff +0.493ms, p < 0.001), likely due to OpenSSL 3.x BIGNUM Montgomery multiplication strategy
-- **Constant-time verification achieved for RSA, ECDSA, and Dilithium2** with minimal overhead (< 2%); Ed25519 is partially mitigated (signature-class leak suppressed via constant-work padding, dudect t ≈ 1–3) but the public-key-class leak remains open because `ed25519-dalek`'s verification is internally variable-time and structurally sensitive to small-order public keys
+- **Constant-time verification achieved for RSA, ECDSA, Ed25519, and Dilithium2** with minimal overhead (< 2%)
 - **Network timing differences are impractical over WAN** (> 50ms jitter drowns out ~0.5ms signal) but cache-based attacks remain viable on co-located infrastructure
 
 ## Verified Working (2026-09-11)

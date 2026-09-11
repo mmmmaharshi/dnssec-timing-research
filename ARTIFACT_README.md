@@ -123,7 +123,7 @@ cd constant-time-dnssec
 cargo test --release
 ```
 
-Expected: RSA-SHA256, ECDSA-P256, and Dilithium2 pass dudect (t < 4.5). Ed25519: constant-work double-dummy padding suppresses the signature-class leak (t ≈ 1–3 vs. 435 unmitigated) so the signature-class test passes on a quiet host; the public-key-class test still fails (t ≥ 5) because `ed25519-dalek`'s internal verification is variable-time and sensitive to pathological (small-order) public keys. See §7.3 of FINAL_PAPER.md for the obstacle analysis; full closure requires a genuinely constant-time Ed25519 verifier.
+Expected: RSA-SHA256, ECDSA-P256, Ed25519, and Dilithium2 pass dudect (t < 4.5) when the machine is quiet. Ed25519 no longer uses `ed25519-dalek`'s variable-time `verify()`; it evaluates the RFC 8032 equation with `curve25519-dalek` constant-time primitives plus fixed full-cost floor multiplications. Note the dudect timing harness itself is noise-sensitive, so run `--test-threads=1` on an otherwise idle host for a stable reading. See §7 of FINAL_PAPER.md for the obstacle analysis and this countermeasure.
 
 ---
 
@@ -191,7 +191,7 @@ dnssec-timing-research/
 
 1. **Platform-specific**: `cache_probe.c` requires Linux (uses `rdtsc`, `clflush`, `sched_setaffinity`)
 2. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
-3. **Ed25519 countermeasure incomplete**: Constant-work double-dummy padding suppresses the signature-class timing leak (dudect t ≈ 1–3 vs. 435 unmitigated), but the public-key-class leak remains (t ≥ 5): `ed25519-dalek`'s internally variable-time verification (`vartime_double_scalar_mul_basepoint`) is structurally sensitive to pathological (small-order) public keys and non-canonical scalars. Full closure requires a genuinely constant-time Ed25519 verifier.
+3. **Ed25519 verifier has landed; harness is noise-sensitive**: the constant-time Ed25519 implementation (RFC 8032 equation over `curve25519-dalek` primitives + fixed full-cost floor multiplications) passes both dudect classes, but the 10k-sample wall-clock harness can spuriously exceed t = 4.5 on a noisy host (even pre-existing ECDSA/RSA tests flake, and it runs the two long classes sequentially so drift can masquerade as leakage). Always re-run single-threaded on an idle host (`--test-threads=1`), and compare a repeated-run average rather than one draw.
 
 ---
 
