@@ -25,6 +25,10 @@ jobs:
         working-directory: constant-time-dnssec
         run: cargo test --release --lib
 
+      - name: Build dudect test binary
+        working-directory: constant-time-dnssec
+        run: cargo test --release --test dudect_ct_verification --no-run
+
       - name: Run dudect campaign (5 repetitions, majority vote)
         working-directory: constant-time-dnssec
         shell: bash

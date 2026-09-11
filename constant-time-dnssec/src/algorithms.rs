@@ -112,7 +112,11 @@ pub fn verify_ed25519(sig: &DnssecSignature, data: &SignedData) -> CtVerificatio
 ///
 /// Pads parse-fail paths with dummy verification to maintain CT properties.
 pub fn verify_ecdsa_p256(sig: &DnssecSignature, data: &SignedData) -> CtVerificationResult {
-    use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier};
+    use p256::ecdsa::{
+        Signature, VerifyingKey,
+        signature::Verifier as _,
+        signature::hazmat::PrehashVerifier as _,
+    };
 
     // Prepare signed data and hash with SHA-256.
     let signed_data = crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
@@ -147,8 +151,11 @@ pub fn verify_ecdsa_p256(sig: &DnssecSignature, data: &SignedData) -> CtVerifica
         }
     };
 
-    // p256's verify is designed to be constant-time.
-    match public_key.verify(&hash, &signature) {
+    // p256's verify is designed to be constant-time. `hash` is the SHA-256
+    // digest of the canonical data (DNSSEC semantics: ECDSA verifies over the
+    // digest), so use `verify_prehash` — `verify()` would hash the digest
+    // a second time and reject every legitimately signed record.
+    match public_key.verify_prehash(hash.as_ref(), &signature) {
         Ok(()) => CtVerificationResult::success(),
         Err(_) => CtVerificationResult::failure(),
     }
@@ -355,16 +362,106 @@ mod tests {
     }
 
     #[test]
-    fn rsa_sha256_returns_failure_for_invalid_key() {
-        let sig = DnssecSignature {
-            algorithm: DnssecAlgorithm::Rsasha256,
-            signature: Bytes::from(vec![0u8; 256]),
-            public_key: Bytes::from(vec![0u8; 256]),
-        };
+    fn ecdsa_p256_ct_accepts_valid_signature_and_rejects_tampered() {
+        use p256::ecdsa::signature::Signer as _;
+        use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
+
+        let sk = SigningKey::random(&mut rand_core::OsRng);
         let data = SignedData {
-            rrset_data: Bytes::from("test"),
+            rrset_data: Bytes::from("constant-time DNSSEC ECDSA test rrset"),
             rrsig_header: Bytes::from("header"),
         };
-        assert!(!verify_rsa_sha256(&sig, &data).is_valid());
+        let prepared = crate::prepare_signed_data(
+            data.rrsig_header.as_ref(),
+            &[data.rrset_data.as_ref()],
+        );
+        // DNSSEC semantics: ECDSA verifies over the SHA-256 digest of the
+        // canonical data. p256's `Signer` hashes with SHA-256 internally,
+        // so signing the prepared bytes yields a signature over
+        // `SHA-256(canonical data)` — exactly what `verify_prehash` checks.
+        let signature: Signature = sk.sign(prepared.as_slice());
+
+        let pk = VerifyingKey::from(&sk).to_encoded_point(false);
+        let valid_sig = DnssecSignature {
+            algorithm: DnssecAlgorithm::EcdsaP256Sha256,
+            signature: Bytes::from(signature.to_bytes().to_vec()),
+            public_key: Bytes::from(pk.as_bytes().to_vec()),
+        };
+        assert!(verify_ecdsa_p256(&valid_sig, &data).is_valid());
+
+        let mut bad = signature.to_bytes().to_vec();
+        bad[0] ^= 0x01;
+        let tampered = DnssecSignature {
+            signature: Bytes::from(bad),
+            ..valid_sig.clone()
+        };
+        assert!(!verify_ecdsa_p256(&tampered, &data).is_valid());
+    }
+
+    #[test]
+    fn rsa_sha256_ct_accepts_valid_signature_and_rejects_tampered() {
+        use rsa::pkcs1::EncodeRsaPublicKey as _;
+        use rsa::pkcs1v15::SigningKey;
+        use rsa::signature::{SignatureEncoding as _, Signer as _};
+
+        let private_key = rsa::RsaPrivateKey::new(&mut rand_core::OsRng, 2048).expect("keygen");
+        let data = SignedData {
+            rrset_data: Bytes::from("constant-time DNSSEC RSA test rrset"),
+            rrsig_header: Bytes::from("header"),
+        };
+        let prepared = crate::prepare_signed_data(
+            data.rrsig_header.as_ref(),
+            &[data.rrset_data.as_ref()],
+        );
+        let public_key = private_key.to_public_key();
+        let pk_der = public_key.to_pkcs1_der().expect("DER");
+        let signing_key = SigningKey::<Sha256>::new(private_key);
+        let signature = signing_key.sign(&prepared);
+        let valid_sig = DnssecSignature {
+            algorithm: DnssecAlgorithm::Rsasha256,
+            signature: Bytes::from(signature.to_vec()),
+            public_key: Bytes::from(pk_der.as_bytes().to_vec()),
+        };
+        assert!(verify_rsa_sha256(&valid_sig, &data).is_valid());
+
+        let mut bad = signature.to_vec();
+        bad[10] ^= 0x01;
+        let tampered = DnssecSignature {
+            signature: Bytes::from(bad),
+            ..valid_sig.clone()
+        };
+        assert!(!verify_rsa_sha256(&tampered, &data).is_valid());
+    }
+
+    #[test]
+    fn dilithium2_ct_accepts_valid_signature_and_rejects_tampered() {
+        use pqcrypto_dilithium::dilithium2::{detached_sign, keypair};
+        use pqcrypto_traits::sign::{DetachedSignature as _, PublicKey as _};
+
+        let (pk, sk) = keypair();
+        let data = SignedData {
+            rrset_data: Bytes::from("constant-time DNSSEC Dilithium2 test rrset"),
+            rrsig_header: Bytes::from("header"),
+        };
+        let prepared = crate::prepare_signed_data(
+            data.rrsig_header.as_ref(),
+            &[data.rrset_data.as_ref()],
+        );
+        let signature = detached_sign(&prepared, &sk);
+
+        let valid_sig = DnssecSignature {
+            algorithm: DnssecAlgorithm::Dilithium2,
+            signature: Bytes::from(signature.as_bytes().to_vec()),
+            public_key: Bytes::from(pk.as_bytes().to_vec()),
+        };
+        assert!(verify_dilithium2(&valid_sig, &data).is_valid());
+
+        let mut bad = signature.as_bytes().to_vec();
+        bad[100] ^= 0x01;
+        let tampered = DnssecSignature {
+            signature: Bytes::from(bad),
+            ..valid_sig.clone()
+        };
+        assert!(!verify_dilithium2(&tampered, &data).is_valid());
     }
 }
