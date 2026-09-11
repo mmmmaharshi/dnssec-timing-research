@@ -12,7 +12,7 @@
 This artifact contains:
 1. **Attack harness** (`harness/`) — Prime+Probe cache measurement tool
 2. **Analysis scripts** (`analysis/`) — ML classifier and leakage quantification
-3. **Constant-time library** (`constant-time-dnssec/`) — Rust CT verification primitives
+3. **Constant-time library** (`constant-time-dnssec/`) — Rust CT verification primitives (RSA/ECDSA/Dilithium2; Ed25519 remains an open challenge)
 4. **Docker environment** (`docker/`) — Reproducible test setup with BIND/Unbound/Knot
 5. **Results** (`results_cache_attack/`) — Raw data and analysis outputs
 
@@ -123,7 +123,7 @@ cd constant-time-dnssec
 cargo test --release
 ```
 
-Expected: All algorithms pass (t < 4.5) including Ed25519.
+Expected: RSA-SHA256, ECDSA-P256, and Dilithium2 pass dudect (t < 4.5). Ed25519 fails (t = 435.2) due to SHA-512 prehash creating structurally inseparable data-dependent control flow. See §7.2 of FINAL_PAPER.md for obstacle analysis and planned double-dummy verify follow-up.
 
 ---
 
@@ -159,7 +159,7 @@ dnssec-timing-research/
 │   ├── cache_classifier.py          # ML classifier (Random Forest, SVM, GB)
 │   ├── leakage_quantification.py    # Mutual information analysis
 │   ├── visualize_results.py         # Figure generation
-│   ├── analyze_timings.py           # Statistical analysis (t-tests, Cohen's d)
+│   ├── analyze_timings.py           # Statistical analysis (Welch t-tests, Cohen's d)
 │   └── generate_synthetic_cache_data.py  # Synthetic data for testing
 ├── constant-time-dnssec/
 │   ├── src/
@@ -177,7 +177,7 @@ dnssec-timing-research/
 │   ├── trigger_attack.py            # DNS query trigger
 │   └── timing_harness.py            # Network timing harness
 ├── paper/
-│   ├── FINAL_PAPER.md               # Paper draft
+│   ├── FINAL_PAPER.md               # Paper draft (revised)
 │   └── figures/                     # Generated figures
 └── results_cache_attack/            # Measurement results
     ├── combined_cache.csv           # All measurements (4000 samples)
@@ -191,22 +191,23 @@ dnssec-timing-research/
 
 1. **Platform-specific**: `cache_probe.c` requires Linux (uses `rdtsc`, `clflush`, `sched_setaffinity`)
 2. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
-3. **Ed25519 overhead**: CT verification requires 6x overhead (double dummy verify)
+3. **Ed25519 countermeasure incomplete**: Achieves no constant-time behavior (dudect t = 435.2; valid/invalid ratio 1.88×); SHA-512 prehash preprocessing creates data-dependent loop iterations that are structurally inseparable from the core algorithm
 
 ---
 
 ## Verification Status (2026-09-11)
 
-All resolvers verified working with DNSSEC validation:
+DNSSEC validation verified working on BIND 9.20 and Unbound (both OpenSSL-backed):
 - `docker/test_resolvers.py`: ALL PASS (12/12 resolver/zone combinations)
-- Timing harness: 0 errors across all resolvers (BIND, Unbound, Knot) and outcomes
-- CT library: Ed25519 now constant-time via double dummy verify (6x overhead)
+- Timing harness: 0 errors across all outcomes (valid-rsa, bogus, unsigned, nsec3, expired)
+- CT library: RSA, ECDSA, and Dilithium2 achieve constant-time (dudect t < 4.5)
+- Knot Resolver excluded from cache attack evaluation (root zone priming incompatible with isolated Docker environment)
 
 ### Recent Fixes
 - BIND resolver: enabled `dnssec-validation auto` (was disabled)
 - All test queries: set DO bit via EDNS0 to request DNSSEC records
 - Auth-server: corrected `key-directory` path
-- Ed25519: implemented double dummy verify for full CT compliance
+- Paper: revised all statistical reporting with Welch t-tests, p-values, and Cohen's d effect sizes (§5.5)
 
 ---
 
