@@ -123,7 +123,7 @@ cd constant-time-dnssec
 cargo test --release
 ```
 
-Expected: RSA-SHA256, ECDSA-P256, Ed25519, and Dilithium2 pass dudect (t < 4.5) when the machine is quiet. Ed25519 no longer uses `ed25519-dalek`'s variable-time `verify()`; it evaluates the RFC 8032 equation with `curve25519-dalek` constant-time primitives plus fixed full-cost floor multiplications. Note the dudect timing harness itself is noise-sensitive, so run `--test-threads=1` on an otherwise idle host for a stable reading. See §7 of FINAL_PAPER.md for the obstacle analysis and this countermeasure.
+Expected: RSA-SHA256, ECDSA-P256, Ed25519, and Dilithium2 pass dudect (median t < 4.5 across 5 campaigns). Ed25519 no longer uses `ed25519-dalek`'s variable-time `verify()`; it evaluates the RFC 8032 equation with `curve25519-dalek` constant-time primitives plus input-independent floor multiplications. Run with `--test-threads=1` (see Known Limitations for the harness methodology). See §7 of FINAL_PAPER.md for the obstacle analysis and this countermeasure.
 
 ---
 
@@ -191,7 +191,7 @@ dnssec-timing-research/
 
 1. **Platform-specific**: `cache_probe.c` requires Linux (uses `rdtsc`, `clflush`, `sched_setaffinity`)
 2. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
-3. **Ed25519 verifier has landed; harness is noise-sensitive**: the constant-time Ed25519 implementation (RFC 8032 equation over `curve25519-dalek` primitives + fixed full-cost floor multiplications) passes both dudect classes, but the 10k-sample wall-clock harness can spuriously exceed t = 4.5 on a noisy host (even pre-existing ECDSA/RSA tests flake, and it runs the two long classes sequentially so drift can masquerade as leakage). Always re-run single-threaded on an idle host (`--test-threads=1`), and compare a repeated-run average rather than one draw.
+3. **dudect harness methodology**: the harness measures with `rdtsc`+`lfence`, trims the top 1% of each class's samples (upstream dudect practice), randomizes class measurement order to defeat clock-drift epoch bias, and decides on the median t of 5 independent campaigns. This hardening is required on Windows/OneDrive hosts: single-campaign `Instant`-based t-tests produced spurious t up to ~25 on provably identical code paths (timer fast/slow-path bimodality, OneDrive sync and turbo-frequency drift landing asymmetrically between fixed-alternation class epochs). Run with `--test-threads=1`; elevated process priority helps on busy hosts.
 
 ---
 

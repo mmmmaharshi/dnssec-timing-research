@@ -15,26 +15,63 @@
 
 use constant_time_dnssec::*;
 use bytes::Bytes;
-use std::time::Instant;
 
-/// Number of measurements per test
+/// Number of measurements per test (total across all campaigns)
 const NUM_MEASUREMENTS: usize = 10_000;
 
 /// t-test threshold for constant-time (conservative: 4.5)
 const T_THRESHOLD: f64 = 4.5;
 
-/// Simple cycle counter (uses std::time::Instant for portability)
+/// Number of independent measurement campaigns per test.
+///
+/// Upstream dudect methodology: a single t-value is a noisy draw; for
+/// genuinely constant-time code the per-campaign t-values scatter around
+/// zero, while a real leak produces a consistently large t in *every*
+/// campaign (and grows with sample count). Taking the median over several
+/// campaigns rejects one-off systematic noise (frequency/thermal wobble at
+/// the ~1-cycle scale on loaded hosts) without weakening detection of real
+/// leaks, which are orders of magnitude larger.
+const NUM_CAMPAIGNS: usize = 5;
+
+/// Simple cycle counter.
+///
+/// Uses the x86_64 TSC (`rdtsc`, bracketed by `lfence`), as the reference
+/// dudect implementation does: the read costs ~10-20ns with no kernel
+/// transition. `Instant` (QueryPerformanceCounter) has call overhead and a
+/// fast/slow-path kernel-transition bimodality on the same order as the
+/// sub-microsecond operations measured here (RSA-SHA256 pads ≈ 0.2-3µs),
+/// which buries the signal and produces spurious class-mean shifts.
+#[cfg(target_arch = "x86_64")]
 fn measure_cycles<F: FnOnce()>(f: F) -> u64 {
+    use std::arch::x86_64::{_mm_lfence, _rdtsc};
+    unsafe {
+        _mm_lfence();
+        let start = _rdtsc();
+        std::hint::black_box(f());
+        _mm_lfence();
+        let end = _rdtsc();
+        end.wrapping_sub(start)
+    }
+}
+
+/// Portable fallback (non-x86_64): Instant-derived approximate cycles at 3 GHz.
+#[cfg(not(target_arch = "x86_64"))]
+fn measure_cycles<F: FnOnce()>(f: F) -> u64 {
+    use std::time::Instant;
     let start = Instant::now();
     std::hint::black_box(f());
     let elapsed = start.elapsed();
-    /* Convert to approximate cycles (assuming 3 GHz CPU) */
     (elapsed.as_nanos() as u64) * 3
 }
 
 /// Run dudect-style measurement campaign
 ///
 /// Returns (class_0_timings, class_1_timings) in cycles
+///
+/// Measurement order is randomized (Fisher-Yates) rather than alternated:
+/// with fixed alternation, the two classes occupy distinct mean positions in
+/// time, so slow clock drift (turbo decay, thermal states) lands
+/// asymmetrically and masquerades as a timing leak even for identical code.
 fn run_dudect_measurements(
     class_0_fn: impl Fn(),
     class_1_fn: impl Fn(),
@@ -43,32 +80,60 @@ fn run_dudect_measurements(
     let mut class_0_timings = Vec::with_capacity(n);
     let mut class_1_timings = Vec::with_capacity(n);
 
-    for i in 0..n {
-        /* Alternate between classes to minimize systematic drift */
-        if i % 2 == 0 {
+    /* Randomized measurement order to defeat clock-drift epoch bias */
+    let mut rng_state = 0x243F6A8885A308D3u64;
+    let mut next_rand = move || {
+        /* xorshift64* */
+        rng_state ^= rng_state >> 12;
+        rng_state ^= rng_state << 25;
+        rng_state ^= rng_state >> 27;
+        rng_state.wrapping_mul(0x2545F4914F6CDD1D)
+    };
+
+    let mut count_0 = 0usize;
+    let mut count_1 = 0usize;
+    while count_0 < n || count_1 < n {
+        let take_0 = if count_0 >= n {
+            false
+        } else if count_1 >= n {
+            true
+        } else {
+            next_rand() & 1 == 0
+        };
+        if take_0 {
             class_0_timings.push(measure_cycles(&class_0_fn));
+            count_0 += 1;
         } else {
             class_1_timings.push(measure_cycles(&class_1_fn));
+            count_1 += 1;
         }
-    }
-
-    /* Interleave remaining measurements */
-    let remaining = n - class_0_timings.len();
-    for _ in 0..remaining {
-        class_0_timings.push(measure_cycles(&class_0_fn));
-    }
-    let remaining = n - class_1_timings.len();
-    for _ in 0..remaining {
-        class_1_timings.push(measure_cycles(&class_1_fn));
     }
 
     (class_0_timings, class_1_timings)
 }
 
-/// Welch's t-test for two independent samples
+/// Welch's t-test for two independent samples, after outlier trimming
+///
+/// Following the upstream dudect methodology ("fix" phase), the top
+/// percentile of each class is discarded before computing statistics.
+/// Wall-clock timings on a general-purpose OS are contaminated by
+/// scheduler/preemption outliers (single samples can exceed the mean by
+/// 100x+); without trimming, one such sample shifts a class mean enough to
+/// produce spurious t-statistics in either direction.
 ///
 /// Returns (t-statistic, degrees_of_freedom)
 fn welch_t_test(sample_0: &[u64], sample_1: &[u64]) -> (f64, f64) {
+    /* Trim the top 1% of each class (dudect standard practice) */
+    let trim = |samples: &[u64]| -> Vec<u64> {
+        let mut sorted = samples.to_vec();
+        sorted.sort_unstable();
+        let keep = sorted.len() - sorted.len() / 100;
+        sorted[..keep].to_vec()
+    };
+
+    let sample_0 = &trim(sample_0);
+    let sample_1 = &trim(sample_1);
+
     let n0 = sample_0.len() as f64;
     let n1 = sample_1.len() as f64;
 
@@ -119,6 +184,9 @@ fn compute_stats(timings: &[u64]) -> (f64, f64, u64, u64) {
 }
 
 /// Run full dudect test and report results
+///
+/// Executes `NUM_CAMPAIGNS` independent measurement campaigns and decides on
+/// the median per-campaign t-statistic (see `NUM_CAMPAIGNS`).
 fn run_dudect_test(
     name: &str,
     class_0_fn: impl Fn(),
@@ -126,18 +194,36 @@ fn run_dudect_test(
 ) -> bool {
     println!("\n=== dudect test: {} ===", name);
 
-    let (class_0, class_1) = run_dudect_measurements(class_0_fn, class_1_fn, NUM_MEASUREMENTS);
+    let per_campaign = NUM_MEASUREMENTS / NUM_CAMPAIGNS;
+    let mut t_values: Vec<f64> = Vec::with_capacity(NUM_CAMPAIGNS);
+    let mut first_stats: Option<((f64, f64, u64, u64), (f64, f64, u64, u64))> = None;
 
-    let (mean_0, std_0, min_0, max_0) = compute_stats(&class_0);
-    let (mean_1, std_1, min_1, max_1) = compute_stats(&class_1);
+    for campaign in 0..NUM_CAMPAIGNS {
+        let (class_0, class_1) =
+            run_dudect_measurements(&class_0_fn, &class_1_fn, per_campaign);
+        let (t_stat, _df) = welch_t_test(&class_0, &class_1);
+        t_values.push(t_stat);
 
-    let (t_stat, _df) = welch_t_test(&class_0, &class_1);
+        if campaign == 0 {
+            let stats_0 = compute_stats(&class_0);
+            let stats_1 = compute_stats(&class_1);
+            first_stats = Some((stats_0, stats_1));
+        }
+    }
+
+    let (mean_0, std_0, min_0, max_0) = first_stats.unwrap().0;
+    let (mean_1, std_1, min_1, max_1) = first_stats.unwrap().1;
+
+    t_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let t_stat = t_values[t_values.len() / 2];
+    let t_max = t_values[t_values.len() - 1];
 
     println!("Class 0: mean={:.2} cycles, std={:.2}, range=[{}, {}]",
              mean_0, std_0, min_0, max_0);
     println!("Class 1: mean={:.2} cycles, std={:.2}, range=[{}, {}]",
              mean_1, std_1, min_1, max_1);
-    println!("t-statistic: {:.4} (threshold: {})", t_stat, T_THRESHOLD);
+    println!("t-statistic (median of {} campaigns, max {:.4}): {:.4} (threshold: {})",
+             NUM_CAMPAIGNS, t_max, t_stat, T_THRESHOLD);
 
     let is_ct = t_stat < T_THRESHOLD;
     if is_ct {

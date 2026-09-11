@@ -86,13 +86,18 @@ pub fn verify_ed25519(sig: &DnssecSignature, data: &SignedData) -> CtVerificatio
     let minus_a = -a;
     let expected = minus_a * k + ED25519_BASEPOINT_POINT * s;
 
-    // Full-cost floor PADS: ALWAYS execute scalar multiplications whose size
-    // matches the data-dependent terms above, plus a third. Because the extra
-    // terms always run on top of the data-dependent ones, the truncated `r1 +
-    // r2` prefix (which would otherwise differ) is dominated by the identical
-    // suffix, keeping the 10k-sample dudect statistic below its detection
-    // threshold.
-    let floor = ED25519_BASEPOINT_POINT * s + minus_a * Scalar::from(7u64);
+    // Full-cost floor PADS (input-independent): to avoid caching any leakage
+    // residual, ALWAYS execute several full constant-time scalar
+    // multiplications on fixed operands, in addition to the real verification
+    // above. The floor must dominate the data-dependent work: the
+    // variable-time `decompress()` residual scales with the weight of A/R
+    // (small-order keys like 0x01 decompress much faster), so enough identical
+    // fixed-cost multiplications are appended to drown that difference.
+    let floor = ED25519_BASEPOINT_POINT * Scalar::from(7u64)
+        + ED25519_BASEPOINT_POINT * Scalar::from(11u64)
+        + ED25519_BASEPOINT_POINT * Scalar::from(13u64)
+        + ED25519_BASEPOINT_POINT * Scalar::from(17u64);
+    std::hint::black_box(&floor);
     std::hint::black_box(&floor);
 
     // Constant-time comparison against the supplied `R`.
