@@ -17,6 +17,8 @@ __pycache__/
 # Results (generated)
 results/*.csv
 results/*.txt
+results_cache_attack/*
+!results_cache_attack/.gitkeep
 
 # Generated DNSSEC keys and zones
 docker/zones/K*
