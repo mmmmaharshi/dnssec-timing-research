@@ -1,0 +1,133 @@
+======================================================================
+DNSSEC Timing Side-Channel Analysis Report
+======================================================================
+
+======================================================================
+Resolver: bind
+======================================================================
+
+--- Descriptive Statistics ---
+Outcome                     N   Mean(ms) Median(ms)    Std(ms)      P5-P95(ms)
+---------------------------------------------------------------------------
+bogus                     500     10.245      3.239     72.410   2.242-12.736
+expired                   500      5.502      2.801     27.717   2.152-6.754
+nsec3                     500      3.100      2.196      3.208   1.559-7.435
+unsigned                  500      4.179      2.681     18.032   1.756-5.348
+valid-ecdsa               500      4.007      3.186      3.130   2.268-7.954
+valid-ed25519             500      3.386      2.929      1.709   2.240-6.156
+valid-rsa                 500      4.746      3.417      4.357   2.352-11.900
+
+--- Pairwise Comparisons (Welch's t-test) ---
+Comparison                                   t-stat      p-value    Cohen d   Sig?
+----------------------------------------------------------------------------------
+valid-rsa vs valid-ecdsa                      3.079     2.14e-03      0.195     **
+valid-rsa vs valid-ed25519                    6.492     1.68e-10      0.411    ***
+valid-rsa vs bogus                           -1.693     9.10e-02     -0.107       
+valid-rsa vs expired                         -0.602     5.48e-01     -0.038       
+valid-rsa vs unsigned                         0.684     4.94e-01      0.043       
+valid-rsa vs nsec3                            6.799     1.90e-11      0.430    ***
+valid-ecdsa vs valid-ed25519                  3.889     1.10e-04      0.246    ***
+valid-ecdsa vs bogus                         -1.923     5.51e-02     -0.122       
+valid-ecdsa vs expired                       -1.198     2.32e-01     -0.076       
+valid-ecdsa vs unsigned                      -0.210     8.34e-01     -0.013       
+valid-ecdsa vs nsec3                          4.522     6.86e-06      0.286    ***
+valid-ed25519 vs bogus                       -2.115     3.49e-02     -0.134      *
+valid-ed25519 vs expired                     -1.702     8.93e-02     -0.108       
+valid-ed25519 vs unsigned                    -0.977     3.29e-01     -0.062       
+valid-ed25519 vs nsec3                        1.761     7.86e-02      0.111       
+bogus vs expired                              1.366     1.72e-01      0.086       
+bogus vs unsigned                             1.816     6.99e-02      0.115       
+bogus vs nsec3                                2.202     2.81e-02      0.139      *
+expired vs unsigned                           0.894     3.71e-01      0.057       
+expired vs nsec3                              1.924     5.50e-02      0.122       
+unsigned vs nsec3                             1.316     1.89e-01      0.083       
+
+--- Minimum Sample Size Estimation (power=0.95, alpha=0.05) ---
+  valid-rsa vs valid-ecdsa: 686 samples needed
+  valid-rsa vs valid-ed25519: 155 samples needed
+  valid-rsa vs bogus: 2267 samples needed
+  valid-rsa vs expired: 17940 samples needed
+  valid-rsa vs unsigned: 13900 samples needed
+  valid-rsa vs nsec3: 141 samples needed
+  valid-ecdsa vs valid-ed25519: 430 samples needed
+  valid-ecdsa vs bogus: 1758 samples needed
+  valid-ecdsa vs expired: 4531 samples needed
+  valid-ecdsa vs unsigned: 147986 samples needed
+  valid-ecdsa vs nsec3: 318 samples needed
+  valid-ed25519 vs bogus: 1453 samples needed
+  valid-ed25519 vs expired: 2243 samples needed
+  valid-ed25519 vs unsigned: 6805 samples needed
+  valid-ed25519 vs nsec3: 2095 samples needed
+  bogus vs expired: 3481 samples needed
+  bogus vs unsigned: 1971 samples needed
+  bogus vs nsec3: 1340 samples needed
+  expired vs unsigned: 8126 samples needed
+  expired vs nsec3: 1757 samples needed
+  unsigned vs nsec3: 3753 samples needed
+
+======================================================================
+Resolver: unbound
+======================================================================
+
+--- Descriptive Statistics ---
+Outcome                     N   Mean(ms) Median(ms)    Std(ms)      P5-P95(ms)
+---------------------------------------------------------------------------
+bogus                     500      2.508      2.056      1.777   1.662-5.020
+expired                   500      2.835      2.094      3.021   1.648-6.273
+nsec3                     500      5.498      4.016      4.934   2.743-12.315
+unsigned                  500      3.896      2.655      4.073   1.858-10.980
+valid-ecdsa               500      2.901      2.437      1.898   1.711-5.721
+valid-ed25519             500      2.413      2.020      1.544   1.672-5.143
+valid-rsa                 500      2.736      1.972      2.732   1.477-6.696
+
+--- Pairwise Comparisons (Welch's t-test) ---
+Comparison                                   t-stat      p-value    Cohen d   Sig?
+----------------------------------------------------------------------------------
+valid-rsa vs valid-ecdsa                     -1.109     2.68e-01     -0.070       
+valid-rsa vs valid-ed25519                    2.299     2.17e-02      0.145      *
+valid-rsa vs bogus                            1.562     1.19e-01      0.099       
+valid-rsa vs expired                         -0.541     5.88e-01     -0.034       
+valid-rsa vs unsigned                        -5.284     1.60e-07     -0.334    ***
+valid-rsa vs nsec3                          -10.939     5.23e-26     -0.692    ***
+valid-ecdsa vs valid-ed25519                  4.455     9.36e-06      0.282    ***
+valid-ecdsa vs bogus                          3.376     7.63e-04      0.214    ***
+valid-ecdsa vs expired                        0.416     6.78e-01      0.026       
+valid-ecdsa vs unsigned                      -4.946     9.47e-07     -0.313    ***
+valid-ecdsa vs nsec3                        -10.972     8.52e-26     -0.694    ***
+valid-ed25519 vs bogus                       -0.902     3.67e-01     -0.057       
+valid-ed25519 vs expired                     -2.777     5.63e-03     -0.176     **
+valid-ed25519 vs unsigned                    -7.606     1.02e-13     -0.481    ***
+valid-ed25519 vs nsec3                      -13.329     1.17e-35     -0.843    ***
+bogus vs expired                             -2.082     3.77e-02     -0.132      *
+bogus vs unsigned                            -6.977     7.13e-12     -0.441    ***
+bogus vs nsec3                              -12.735     3.36e-33     -0.805    ***
+expired vs unsigned                          -4.676     3.37e-06     -0.296    ***
+expired vs nsec3                            -10.283     2.02e-23     -0.650    ***
+unsigned vs nsec3                            -5.592     2.92e-08     -0.354    ***
+
+--- Minimum Sample Size Estimation (power=0.95, alpha=0.05) ---
+  valid-rsa vs valid-ecdsa: 5287 samples needed
+  valid-rsa vs valid-ed25519: 1230 samples needed
+  valid-rsa vs bogus: 2662 samples needed
+  valid-rsa vs expired: 22168 samples needed
+  valid-rsa vs unsigned: 233 samples needed
+  valid-rsa vs nsec3: 55 samples needed
+  valid-ecdsa vs valid-ed25519: 328 samples needed
+  valid-ecdsa vs bogus: 570 samples needed
+  valid-ecdsa vs expired: 37604 samples needed
+  valid-ecdsa vs unsigned: 266 samples needed
+  valid-ecdsa vs nsec3: 54 samples needed
+  valid-ed25519 vs bogus: 7989 samples needed
+  valid-ed25519 vs expired: 843 samples needed
+  valid-ed25519 vs unsigned: 113 samples needed
+  valid-ed25519 vs nsec3: 37 samples needed
+  bogus vs expired: 1499 samples needed
+  bogus vs unsigned: 134 samples needed
+  bogus vs nsec3: 41 samples needed
+  expired vs unsigned: 298 samples needed
+  expired vs nsec3: 62 samples needed
+  unsigned vs nsec3: 208 samples needed
+
+======================================================================
+Analysis complete.
+======================================================================
