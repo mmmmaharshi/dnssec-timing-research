@@ -235,7 +235,7 @@ dnssec-timing-research/
 
 1. **Platform-specific**: `cache_probe.c` requires Linux (uses `rdtsc`, `clflush`, `sched_setaffinity`)
 2. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
-3. **dudect harness methodology**: the harness measures with `rdtsc`+`lfence`, trims the top 1% of each class's samples (upstream dudect practice), randomizes class measurement order to defeat clock-drift epoch bias, and decides on the median t of 5 independent campaigns. This hardening is required on Windows/OneDrive hosts: single-campaign `Instant`-based t-tests produced spurious t up to ~25 on provably identical code paths (timer fast/slow-path bimodality, OneDrive sync and turbo-frequency drift landing asymmetrically between fixed-alternation class epochs). Run with `--test-threads=1`; elevated process priority helps on busy hosts.
+3. **dudect harness methodology**: the harness measures with `rdtsc`+`lfence`, trims the top 5% of each class's samples (widened from upstream dudect's 1%: preemption storms on shared hosts can contaminate >1% of a campaign's samples and produced a spurious t=16 on an RSA class that passes standalone), randomizes class measurement order to defeat clock-drift epoch bias, and decides on the median t of 5 independent campaigns. This hardening is required on Windows/OneDrive hosts: single-campaign `Instant`-based t-tests produced spurious t up to ~25 on provably identical code paths (timer fast/slow-path bimodality, OneDrive sync and turbo-frequency drift landing asymmetrically between fixed-alternation class epochs). Run with `--test-threads=1`; elevated process priority helps on busy hosts.
 
 ---
 

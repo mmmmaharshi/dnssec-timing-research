@@ -2,7 +2,7 @@
 
 ## Abstract
 
-We present a cache-based side-channel attack that identifies which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a co-located resolver is using. Our Prime+Probe technique on shared L3 cache achieves **82.0% accuracy** with 2000 measurements. Information-theoretic analysis reveals that individual cache sets leak up to 1.1 bits of algorithm information, confirming substantial channel capacity. Timing measurements show measurable differences between algorithms (RSA ~0.5ms slower than ECDSA in BIND), though this direction differs from prior work and is impractical over WAN due to jitter. We demonstrate the cache attack on real BIND and Unbound resolvers and propose a constant-time verification primitive (achieved for RSA-SHA256, ECDSA-P256, and Dilithium2 via dudect; Ed25519 fails constant-time verification per §7.2) as a countermeasure.
+We present a cache-based side-channel attack that identifies which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a co-located resolver is using. Our Prime+Probe technique on shared L3 cache achieves **82.0% accuracy** with 2000 measurements. Information-theoretic analysis reveals that individual cache sets leak up to 1.1 bits of algorithm information, confirming substantial channel capacity. Timing measurements show measurable differences between algorithms (RSA ~0.5ms slower than ECDSA in BIND), though this direction differs from prior work and is impractical over WAN due to jitter. We demonstrate the cache attack on real BIND and Unbound resolvers and propose a constant-time verification primitive (verified via dudect for RSA-SHA256, ECDSA-P256, Ed25519, and Dilithium2; §7.2) as a countermeasure.
 
 ## 1. Introduction
 
@@ -19,7 +19,7 @@ These produce measurable differences in L3 cache access patterns. An attacker ca
 1. Cache-based DNSSEC algorithm identification on real resolver software
 2. 82.0% accuracy on BIND resolver with held-out test data
 3. Information-theoretic leakage quantification (1.1 bits max MI per cache set)
-4. dudect verification that ECDSA/RSA can be constant-time (Ed25519 trade-off documented)
+4. dudect verification that all four implemented algorithm families (RSA, ECDSA, Ed25519, Dilithium2) verify in constant time, with an A/A null control and reference-implementation correctness cross-checks
 5. Rust countermeasure library with low overhead for RSA/ECDSA/Dilithium2
 
 ## 2. Background
@@ -206,9 +206,9 @@ These have distinct memory access patterns that create distinct cache signatures
 | ECDSA-P256 | 0.36–1.23 (pattern + validity classes) | YES | 4.5 |
 | RSA-SHA256 | 0.46–3.18 (pattern classes) | YES | 4.5 |
 | Ed25519 | 0.47–1.37 (null control, pubkey, sig classes) | YES | 4.5 |
-| Dilithium2 | 1.25–4.08 (valid-vs-tampered; padded reject path slightly overshoots) | YES | 4.5 |
+| Dilithium2 | 0.37–1.95 (valid-vs-tampered; exactly one verification per call, length-gated dummy substitution on parse failure) | YES | 4.5 |
 
-All dudect-instrumented classes pass with wide margin. Ed25519 verification now evaluates the RFC 8032 equation `R = [S]B − [k]A` directly with `curve25519-dalek` constant-time primitives (CT canonical-scalar check, CT scalar multiplication, CT point comparison) instead of `ed25519-dalek`'s variable-time `verify()`. Point decompression retains a variable-time residual, which is dominated by four fixed, input-independent full-cost CT scalar multiplications (floor pads), keeping all class statistics far below the detection threshold. The suite includes an A/A null control (identical input in both classes: median t ≈ 0.6–0.8), which bounds the host noise floor; decisions require median t < 4.5 across 5 campaigns, and the CI gate additionally requires a majority-vote campaign (`dudect_campaign.sh`, 5 repetitions). Correctness is cross-checked against the reference implementations: every verifier is tested to accept a genuinely signed record and reject a tampered one — these tests exposed and fixed a double-hashing bug in the ECDSA path (`verify` vs `verify_prehash`) that timing-only measurement could not detect.
+All dudect-instrumented classes pass with wide margin. Ed25519 verification now evaluates the RFC 8032 equation `R = [S]B − [k]A` directly with `curve25519-dalek` constant-time primitives (CT canonical-scalar check, CT scalar multiplication, CT point comparison) instead of `ed25519-dalek`'s variable-time `verify()`. Point decompression retains a variable-time residual, which is dominated by four fixed, input-independent full-cost CT scalar multiplications (floor pads), keeping all class statistics far below the detection threshold. The suite includes an A/A null control (identical input in both classes: median t ≈ 0.6–0.8), which bounds the host noise floor; decisions require median t < 4.5 across 5 campaigns, with the top 5% of samples trimmed per campaign before the statistic is computed (widened from upstream dudect's 1%: a scheduler-preemption storm can contaminate more than 1% of a campaign and produce a spurious large t on a class that passes in isolation), and the CI gate additionally requires a majority-vote campaign (`dudect_campaign.sh`, 5 repetitions). Correctness is cross-checked against the reference implementations: every verifier is tested to accept a genuinely signed record and reject a tampered one — these tests exposed and fixed a double-hashing bug in the ECDSA path (`verify` vs `verify_prehash`) that timing-only measurement could not detect.
 
 ### 7.3 Performance Benchmarks (Real KSK/ZSK Keys)
 
