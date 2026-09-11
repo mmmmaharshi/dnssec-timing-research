@@ -107,6 +107,18 @@ The `constant-time-dnssec` Rust library provides:
 - All DNSSEC algorithms show statistically significant timing differences (p < 0.01)
 - RSA-SHA256: 2.555 ms, ECDSA-P256: 2.820 ms, Ed25519: 3.850 ms
 
+## Verified Working (2026-09-11)
+
+All three resolvers (BIND, Unbound, Knot) confirmed working with DNSSEC validation:
+
+```
+cd docker
+docker-compose up -d
+python test_resolvers.py  # ALL PASS
+```
+
+Timing harness verified with 0 errors across all outcomes (valid-rsa, bogus, unsigned, nsec3, expired).
+
 ## References
 
 - DNSSECVerif: "Proving DNSSEC Correctness" (arxiv 2512.11431)

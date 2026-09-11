@@ -195,10 +195,23 @@ dnssec-timing-research/
 
 ---
 
+## Verification Status (2026-09-11)
+
+All resolvers verified working with DNSSEC validation:
+- `docker/test_resolvers.py`: ALL PASS (12/12 resolver/zone combinations)
+- Timing harness: 0 errors across all resolvers (BIND, Unbound, Knot) and outcomes
+
+### Recent Fixes
+- BIND resolver: enabled `dnssec-validation auto` (was disabled)
+- All test queries: set DO bit via EDNS0 to request DNSSEC records
+- Auth-server: corrected `key-directory` path
+
+---
+
 ## Contact
 
 For questions about this artifact, contact [authors].
 
 ---
 
-*Last updated: 2026-09-08*
+*Last updated: 2026-09-11*
