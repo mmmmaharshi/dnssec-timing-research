@@ -235,53 +235,40 @@ pub fn verify_rsa_sha512(sig: &DnssecSignature, data: &SignedData) -> CtVerifica
 
 /// Verify a Dilithium2 (PQC) signature — constant-time via pqcrypto.
 ///
-/// Dilithium2 sig 2420 B, pubkey 1312 B. Verification is deterministic and
-/// designed to be constant-time; we pad parse failures with dummy verify.
+/// Dilithium2 sig 2420 B, pubkey 1312 B. Every execution path performs
+/// exactly one full verification: parse failures substitute a dummy
+/// key/signature pair so the padded path matches the real verify cost,
+/// and the final reject path returns without any additional work (adding
+/// a second verify there made the reject path measurably slower than the
+/// accept path, t approaching the 4.5 dudect threshold).
 pub fn verify_dilithium2(sig: &DnssecSignature, data: &SignedData) -> CtVerificationResult {
     use pqcrypto_dilithium::dilithium2::{verify_detached_signature, DetachedSignature, PublicKey};
     use pqcrypto_traits::sign::{DetachedSignature as _, PublicKey as _};
 
     let signed_data = crate::prepare_signed_data(data.rrsig_header.as_ref(), &[data.rrset_data.as_ref()]);
 
-    let public_key = match PublicKey::from_bytes(sig.public_key.as_ref()) {
-        Ok(k) => k,
-        Err(_) => {
-            // Dummy verify cost similar to real (~300µs)
-            if let Ok(dk) = PublicKey::from_bytes(&[0u8; 1312]) {
-                if let Ok(ds) = DetachedSignature::from_bytes(&[0u8; 2420]) {
-                    let r = verify_detached_signature(&ds, &signed_data, &dk);
-                    std::hint::black_box(&r);
-                }
-            }
-            return CtVerificationResult::failure();
-        }
+    // Exactly one verification runs on every path: with the real key and
+    // signature where parsing succeeded, with fixed dummies otherwise.
+    let pk_bytes: &[u8] = if sig.public_key.len() == 1312 {
+        sig.public_key.as_ref()
+    } else {
+        &[0u8; 1312]
+    };
+    let sig_bytes: &[u8] = if sig.signature.len() == 2420 {
+        sig.signature.as_ref()
+    } else {
+        &[0u8; 2420]
     };
 
-    let signature = match DetachedSignature::from_bytes(sig.signature.as_ref()) {
-        Ok(s) => s,
-        Err(_) => {
-            if let Ok(dk) = PublicKey::from_bytes(&[0u8; 1312]) {
-                if let Ok(ds) = DetachedSignature::from_bytes(&[0u8; 2420]) {
-                    let r = verify_detached_signature(&ds, &signed_data, &dk);
-                    std::hint::black_box(&r);
-                }
-            }
-            return CtVerificationResult::failure();
-        }
+    let result: Result<(), ()> = match (PublicKey::from_bytes(pk_bytes), DetachedSignature::from_bytes(sig_bytes)) {
+        (Ok(pk), Ok(ds)) => verify_detached_signature(&ds, &signed_data, &pk).map_err(|_| ()),
+        _ => Err(()),
     };
+    std::hint::black_box(&result);
 
-    match verify_detached_signature(&signature, &signed_data, &public_key) {
+    match result {
         Ok(()) => CtVerificationResult::success(),
-        Err(_) => {
-            // Pad Err to match Ok cost
-            if let Ok(dk) = PublicKey::from_bytes(&[0u8; 1312]) {
-                if let Ok(ds) = DetachedSignature::from_bytes(&[0u8; 2420]) {
-                    let r = verify_detached_signature(&ds, &signed_data, &dk);
-                    std::hint::black_box(&r);
-                }
-            }
-            CtVerificationResult::failure()
-        }
+        Err(_) => CtVerificationResult::failure(),
     }
 }
 

@@ -121,13 +121,21 @@ fn run_dudect_measurements(
 /// 100x+); without trimming, one such sample shifts a class mean enough to
 /// produce spurious t-statistics in either direction.
 ///
+/// The trim fraction is 5% rather than the upstream 1%: on a shared host a
+/// brief preemption storm can contaminate more than 1% of a 2,000-sample
+/// campaign (observed on RSA: >2% of one class above 83000 cycles against a
+/// 352-cycle floor, t=16.4 with the 1% trim — the identical class passed at
+/// t=2.8 seconds later). A systematic valid/invalid timing difference shifts
+/// the bulk of the distribution and survives a 5% trim, so sensitivity to
+/// real leaks is retained while stochastic scheduler spikes are absorbed.
+///
 /// Returns (t-statistic, degrees_of_freedom)
 fn welch_t_test(sample_0: &[u64], sample_1: &[u64]) -> (f64, f64) {
-    /* Trim the top 1% of each class (dudect standard practice) */
+    /* Trim the top 5% of each class before computing statistics */
     let trim = |samples: &[u64]| -> Vec<u64> {
         let mut sorted = samples.to_vec();
         sorted.sort_unstable();
-        let keep = sorted.len() - sorted.len() / 100;
+        let keep = sorted.len() - sorted.len() / 20;
         sorted[..keep].to_vec()
     };
 
