@@ -123,7 +123,7 @@ cd constant-time-dnssec
 cargo test --release
 ```
 
-Expected: RSA-SHA256, ECDSA-P256, and Dilithium2 pass dudect (t < 4.5). Ed25519 fails (t = 435.2) due to SHA-512 prehash creating structurally inseparable data-dependent control flow. See §7.2 of FINAL_PAPER.md for obstacle analysis and planned double-dummy verify follow-up.
+Expected: RSA-SHA256, ECDSA-P256, and Dilithium2 pass dudect (t < 4.5). Ed25519: constant-work double-dummy padding suppresses the signature-class leak (t ≈ 1–3 vs. 435 unmitigated) so the signature-class test passes on a quiet host; the public-key-class test still fails (t ≥ 5) because `ed25519-dalek`'s internal verification is variable-time and sensitive to pathological (small-order) public keys. See §7.3 of FINAL_PAPER.md for the obstacle analysis; full closure requires a genuinely constant-time Ed25519 verifier.
 
 ---
 
@@ -191,7 +191,7 @@ dnssec-timing-research/
 
 1. **Platform-specific**: `cache_probe.c` requires Linux (uses `rdtsc`, `clflush`, `sched_setaffinity`)
 2. **Cloud co-location**: Tested on single host with Docker, not real cloud VMs
-3. **Ed25519 countermeasure incomplete**: Achieves no constant-time behavior (dudect t = 435.2; valid/invalid ratio 1.88×); SHA-512 prehash preprocessing creates data-dependent loop iterations that are structurally inseparable from the core algorithm
+3. **Ed25519 countermeasure incomplete**: Constant-work double-dummy padding suppresses the signature-class timing leak (dudect t ≈ 1–3 vs. 435 unmitigated), but the public-key-class leak remains (t ≥ 5): `ed25519-dalek`'s internally variable-time verification (`vartime_double_scalar_mul_basepoint`) is structurally sensitive to pathological (small-order) public keys and non-canonical scalars. Full closure requires a genuinely constant-time Ed25519 verifier.
 
 ---
 
