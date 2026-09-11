@@ -89,8 +89,8 @@ cargo bench
 
 ```bash
 cd analysis
-python cache_classifier.py --input results_cache_attack/combined_cache.csv --output results/
-python leakage_quantification.py --input results_cache_attack/combined_cache.csv
+uv run python cache_classifier.py --input results_cache_attack/combined_cache.csv --output results/
+uv run python leakage_quantification.py --input results_cache_attack/combined_cache.csv
 ```
 
 ## Test Outcomes
@@ -125,10 +125,10 @@ The `constant-time-dnssec` Rust library provides:
 
 ## Key Findings
 
-- **Cache-based fingerprinting achieves 82.0% accuracy** across 4 algorithm classes using Prime+Probe on shared L3 cache, with individual cache sets leaking up to 1.1 bits of mutual information
-- **RSA takes ~0.5ms longer than ECDSA** in BIND 9.20 (median diff +0.493ms, p < 0.001), likely due to OpenSSL 3.x BIGNUM Montgomery multiplication strategy
-- **Constant-time verification achieved for RSA, ECDSA, Ed25519, and Dilithium2** with minimal overhead (< 2%)
-- **Network timing differences are impractical over WAN** (> 50ms jitter drowns out ~0.5ms signal) but cache-based attacks remain viable on co-located infrastructure
+- **Cache-based fingerprinting achieves 81.7% accuracy** (5-fold CV, n=4000) across 4 algorithm classes using Prime+Probe on shared L3 cache, with individual cache lines leaking up to 1.1 bits of mutual information (98.8% of lines leak >0.1 bits)
+- **RSA ~0.6ms faster than ECDSA** in BIND 9.20 with OpenSSL 3.x (median diff −0.650ms), likely due to more cache-efficient BIGNUM Montgomery multiplication
+- **Constant-time verification achieved for RSA, ECDSA, Ed25519, and Dilithium2** (dudect median t < 3.2, threshold 4.5); Ed25519 verified with residual decompression caveat (see §8.3)
+- **Network timing differences are impractical over WAN** (> 50ms jitter drowns out ~0.6ms signal) but cache-based attacks remain viable on co-located infrastructure
 
 ## Verified Working (2026-09-11)
 
@@ -149,5 +149,5 @@ Note: Knot Resolver was excluded from cache attack evaluation due to root zone p
 - DNSSECVerif: "Proving DNSSEC Correctness" (arxiv 2512.11431)
 - Almeida et al., "SoK: The Impact of Uninitialized Cipher State on Cryptographic Code" (IEEE S&P 2022)
 - RFC 4033/4034/4035 — DNSSEC specifications
-- RFC 9402 — EdDSA for DNSSEC (2023)
+- RFC 8080 — Edwards-Curve Digital Security Algorithm (EdDSA) for DNSSEC (2017)
 - "On timing side channels in constant-time implementations" (Springer 2026)

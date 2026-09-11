@@ -10,24 +10,26 @@
 
 ## Summary
 
-We discovered a cache-based side-channel attack that allows a co-located attacker to determine which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a victim resolver is validating. This attack exploits shared L3 cache in cloud environments and achieves >95% classification accuracy with as few as 1,000 measurements.
+We discovered a cache-based side-channel attack that allows a co-located attacker to determine which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a victim resolver is validating. This attack exploits shared L3 cache in cloud environments and achieves >80% classification accuracy with 4000 measurements.
 
 ## Affected Software
 
 | Software | Version | Status |
 |----------|---------|--------|
-| BIND | 9.x | Notified |
-| Unbound | 1.x | Notified |
-| Knot Resolver | 6.x | Notified |
+| BIND | 9.x | Demonstrated (cache attack) |
+| Unbound | 1.x | Network timing only (cache attack not demonstrated) |
+| Knot Resolver | 6.x | Not tested (requires internet-facing root zone priming) |
 | dnsmasq | 2.x | Uses external validator |
-| PowerDNS Recursor | 4.x | Notified |
+| PowerDNS Recursor | 4.x | Not tested (requires separate deployment) |
+
+**Disclosure status:** This document is a pre-submission draft. Vendor notification will commence after paper acceptance. No vendors have been notified at the time of submission.
 
 ## Attack Requirements
 
 1. **Co-location**: Attacker VM on same physical host as victim resolver
 2. **Shared cache**: Standard in modern CPUs (L3 shared across cores)
 3. **DNS query capability**: Attacker can send queries to victim resolver
-4. **Measurement capability**: `rdtsc` and `clflush` instructions
+4. **Measurement capability**: `rdtsc` instruction (Prime+Probe does not require `clflush`)
 
 ## Impact
 
@@ -42,13 +44,13 @@ We developed a working proof-of-concept:
 - `harness/trigger_attack.py`: DNS query trigger coordination
 - `analysis/cache_classifier.py`: ML-based algorithm classifier
 
-**Classification accuracy**: 97.95% (5-fold cross-validation, n=2000)
+**Classification accuracy**: 81.7% (5-fold cross-validation, n=4000); 78.9% temporal-split.
 
 ## Countermeasure
 
 We propose a constant-time DNSSEC verification primitive:
 - **Implementation**: Rust library (`constant-time-dnssec/`)
-- **Verification**: dudect statistical proof (t < 4.5 for ECDSA/RSA)
+- **Verification**: dudect statistical proof (t < 4.5 for ECDSA/RSA/Ed25519/Dilithium2; median-of-5 campaigns with top-5% trimming)
 - **Overhead**: +8% RSA, +13% ECDSA, +60% Ed25519
 
 ## Disclosure Timeline
@@ -58,12 +60,11 @@ We propose a constant-time DNSSEC verification primitive:
 | 2026-09-07 | Initial discovery |
 | 2026-09-07 | PoC developed and tested |
 | 2026-09-07 | Countermeasure implemented |
-| [DATE] | Notify BIND security team |
-| [DATE] | Notify Unbound security team |
-| [DATE] | Notify Knot security team |
-| [DATE] | Notify IANA (algorithm number proposal) |
-| [DATE] | 90-day disclosure deadline |
-| [DATE] | Public disclosure (conference publication) |
+| TBD | Notify BIND security team (after paper acceptance) |
+| TBD | Notify Unbound security team |
+| TBD | Notify Knot security team |
+| TBD | 90-day disclosure deadline |
+| TBD | Public disclosure (conference publication) |
 
 ## Recommendations
 

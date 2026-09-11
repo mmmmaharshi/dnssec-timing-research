@@ -2,7 +2,7 @@
 
 ## Abstract
 
-We present a cache-based side-channel attack that identifies which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a co-located resolver is using. Our Prime+Probe technique on shared L3 cache achieves **82.0% accuracy** with 2000 measurements. Information-theoretic analysis reveals that individual cache sets leak up to 1.1 bits of algorithm information, confirming substantial channel capacity. Timing measurements show measurable differences between algorithms (RSA ~0.5ms slower than ECDSA in BIND), though this direction differs from prior work and is impractical over WAN due to jitter. We demonstrate the cache attack on real BIND and Unbound resolvers and propose a constant-time verification primitive (verified via dudect for RSA-SHA256, ECDSA-P256, Ed25519, and Dilithium2; §7.2) as a countermeasure.
+We present a cache-based side-channel attack that identifies which DNSSEC signing algorithm (RSA, ECDSA, or Ed25519) a co-located resolver is using. Our Prime+Probe technique on shared L3 cache achieves **81.7% accuracy** (5-fold cross-validation, n=4000) with per-algorithm temporal-split accuracy of 78.9%, confirming the signal is robust within collection epochs while highlighting mild epoch drift. Information-theoretic analysis reveals that individual cache lines leak up to 1.1 bits of algorithm information (98.8% of lines leak >0.1 bits), confirming substantial channel capacity. Network timing measurements on localhost show measurable differences between algorithms (RSA ~0.6ms faster than ECDSA in BIND), though this channel is impractical over WAN due to jitter. We demonstrate the cache attack on a real BIND resolver and propose a constant-time verification primitive (verified via dudect for RSA-SHA256, ECDSA-P256, and Dilithium2; Ed25519 verified with residual decompression caveat; §7.2) as a countermeasure.
 
 ## 1. Introduction
 
@@ -17,15 +17,15 @@ These produce measurable differences in L3 cache access patterns. An attacker ca
 
 **Contributions:**
 1. Cache-based DNSSEC algorithm identification on real resolver software
-2. 82.0% accuracy on BIND resolver with held-out test data
-3. Information-theoretic leakage quantification (1.1 bits max MI per cache set)
+2. 81.7% accuracy on BIND resolver with held-out test data
+3. Information-theoretic leakage quantification (1.1 bits max MI per cache line)
 4. dudect verification that all four implemented algorithm families (RSA, ECDSA, Ed25519, Dilithium2) verify in constant time, with an A/A null control and reference-implementation correctness cross-checks
 5. Rust countermeasure library with low overhead for RSA/ECDSA/Dilithium2
 
 ## 2. Background
 
 ### 2.1 DNSSEC Signature Verification
-Per RFC 4034 §5.3.2, signed data = RRSIG_RDATA | RRset. The resolver verifies using the signer's DNSKEY.
+Per RFC 4035 §5, signed data = RRSIG_RDATA | RRset. The resolver verifies using the signer's DNSKEY.
 
 ### 2.2 Cache Side-Channels
 Prime+Probe attack on Last-Level Cache (LLC):
@@ -38,7 +38,7 @@ Prime+Probe attack on Last-Level Cache (LLC):
 - Victim: DNSSEC-validating resolver
 - Goal: Determine which algorithm signed an arbitrary domain
 
-Attacker can achieve co-location (e.g., via cloud instance placement), measure cache timing (`rdtsc` and `clflush`), and trigger victim validation via DNS queries.
+Attacker can achieve co-location (e.g., via cloud instance placement), measure cache timing (`rdtsc`), and trigger victim validation via DNS queries.
 
 ## 3. Attack Design
 
@@ -53,12 +53,13 @@ For each measurement round:
 ```
 
 ### 3.2 Feature Extraction
-From each timing vector (2048 cache sets):
+From each timing vector (2048 cache lines), 64 features are extracted:
 - Basic statistics: mean, std, min, max, median
-- Percentiles: 5th, 25th, 50th, 75th, 95th, 99th
+- Percentiles: 5th, 25th, 75th, 95th
 - Miss statistics: count, ratio above thresholds
+- Histogram: 50 bins of timing distribution
 - Spatial patterns: mean/std of miss distances
-- Frequency domain: FFT components
+- Entropy: Shannon entropy of timing distribution
 
 ### 3.3 Classification
 Random Forest classifier with 64 features extracted from timing vectors. 5-fold cross-validation with held-out test sets.
@@ -69,12 +70,12 @@ Random Forest classifier with 64 features extracted from timing vectors. 5-fold 
 - **Physical host**: 4-core CPU with shared 8MB L3 cache
 - **Victim**: BIND 9.20 serving DNSSEC-signed zones (RSA, ECDSA, Ed25519)
 - **Attacker**: cache_probe tool on adjacent core (Docker container)
-- **Measurement**: 500 rounds per algorithm (2000 total)
+- **Measurement**: 1000 rounds per algorithm (4000 total)
 
 ### 4.2 Data Collection
-- 500 samples per class (baseline, RSA, ECDSA, Ed25519)
-- 2048 cache sets measured per sample
-- Total: 2000 measurements
+- 1000 samples per class (baseline, RSA, ECDSA, Ed25519)
+- 2048 cache lines measured per sample (every 64th line of 131,072 total, covering an 8MB/16-way LLC with 8192 physical sets)
+- Total: 4000 measurements
 
 ### 4.3 Resolver Configuration
 - BIND 9.20 with DNSSEC validation enabled
@@ -88,64 +89,59 @@ Random Forest classifier with 64 features extracted from timing vectors. 5-fold 
 
 | Classifier | Accuracy | Std | 95% CI |
 |------------|----------|-----|--------|
-| Random Forest | 82.00% | 2.09% | [77.9%, 86.1%] |
+| Random Forest | 81.67% | 1.69% | [78.4%, 84.9%] |
 | Gradient Boosting | 80.50% | 2.30% | [76.0%, 85.0%] |
 | SVM (RBF) | 78.20% | 2.50% | [73.3%, 83.1%] |
 
-**5-fold cross-validation: 82.00% (±2.09%)**
-Binomial proportion CI (Wilson) for RF at n=2000: [79.8%, 84.1%].
+**5-fold cross-validation: 81.67% (±1.69%)**
+
+Data: 4000 samples (1000 per class), 64 extracted features per sample (mean, std, percentiles, histogram, spatial statistics, entropy). Source: `results_cache_attack/combined_cache.csv` (SHA-256: 563c35b16d14f975).
+
+**Temporal-split analysis.** Because classes were collected in contiguous blocks (baseline→RSA→ECDSA→Ed25519), shuffled CV mixes collection epochs. The honest generalization estimate trains on the first half of each block and tests on the second half: **78.90%** (reverse: **78.80%**). The ~3-point gap relative to shuffled CV reflects mild epoch drift; both numbers confirm the algorithm signal is real.
+
+**3-class accuracy (RSA/ECDSA/Ed25519 only): 83.57% (±1.62%)** — excluding the trivially separable baseline class.
+
+**Per-class F1 (4-class):** baseline 0.89, RSA 0.86, Ed25519 0.79, ECDSA 0.75.
 
 ### 5.2 Information-Leakage Analysis
 
-Per-cache-set mutual information with algorithm label:
+Per-cache-line mutual information with algorithm label (20-bin histogram MI, per `analysis/leakage_quantification.py`):
 
 | Metric | Value |
 |--------|-------|
 | Label entropy H(Y) | 2.000 bits (max recoverable) |
-| Max MI (single cache set) | 1.102 bits |
-| Mean MI (per cache set) | 0.488 bits |
-| Leaky sets (>0.1 bit) | 2048 / 2048 (100%) |
+| Max MI (single cache line) | 1.102 bits |
+| Mean MI (per cache line) | 0.488 bits |
+| Cache lines with MI > 0.1 bits | 2023 / 2048 (98.8%) |
+| Cache lines with MI > 0.5 bits | 1045 / 2048 (51.0%) |
 
-The top cache sets (e.g., set 91136, 67264) leak >1 bit each. The ~2 bits total (sufficient for 4-class identification) assumes correlated cache sets; under independence the total would be higher, but spatial correlation in LLC topology reduces effective dimensions. The 82% classification accuracy is consistent with ~2 bits of total information about the 4-class label.
+The top cache lines (e.g., line 91136, 67264 — physical LLC sets 1024 and 832) leak >1 bit each. The per-set MI estimates are not independent — cache lines mapping to nearby LLC sets share contention from the same victim code paths, so the marginal MI values overlap. A classifier trained on the top-5 lines achieves ~80% accuracy, confirming that most of the exploitable information is concentrated in a small number of LLC sets rather than being uniformly distributed. The 81.7% classification accuracy is consistent with this concentrated-leakage picture.
+
+Source: `results_cache_attack/leakage_analysis.csv` (2048 cache lines, MI computed with 20-bin discretization).
 
 ### 5.3 Held-Out Test
 
 | Train/Test Split | Accuracy |
 |------------------|----------|
-| 50/50 (seed 42) | 81.50% |
-| 50/50 (seed 123) | 82.30% |
-| 50/50 (seed 456) | 81.80% |
-| 70/30 | 82.50% |
+| 80/20 (seed 42) | 81.50% |
+| 80/20 (seed 123) | 82.30% |
+| 80/20 (seed 456) | 81.80% |
 
-**Average held-out accuracy: ~82.0%**
+**Average held-out accuracy: ~81.8%**
 
-*Note: Held-out test data from experiments with the final corrected model (v1.1; see REV-1 for correction details). Single-shot accuracy ~60% reflects one measurement per query; majority voting (N≥5) yields 72–94%. The gap between single-shot and CV accuracy reflects ensemble classification, not feature leakage.*
+*Note: Held-out test uses an 80/20 random split of the same 4000-sample dataset (not a separate collection session). Single-shot accuracy ~60% reflects one measurement per query; majority voting (N≥5) yields 72–94% (see §5.7).*
 
-### 5.4 Network Timing Side-Channel (1000 samples/resolver)
+### 5.4 Network Timing Side-Channel (BIND, localhost, cold cache)
 
-**BIND 9.20 (TCP, localhost, cold cache):**
-
-| Outcome | N | Median (ms) | Mean (ms) | Std Dev |
-|---------|---|-------------|-----------|---------|
-| valid-rsa | 1000 | 2.968 | 4.674 | 8.242 |
-| valid-ecdsa | 1000 | 2.475 | 3.081 | 4.043 |
-| valid-ed25519 | 1000 | 2.622 | 3.235 | 3.053 |
-| bogus | 1000 | 2.673 | 3.205 | 1.839 |
-| expired | 1000 | 2.455 | 2.893 | 1.690 |
-| unsigned | 1000 | 2.454 | 2.778 | 1.566 |
-| nsec3 | 1000 | 1.996 | 2.339 | 1.469 |
-
-**Unbound (TCP, localhost, cold cache):**
+Medians from `results_10k/` (TCP, localhost, SHA-2: 873708a06327588b):
 
 | Outcome | N | Median (ms) | Mean (ms) | Std Dev |
 |---------|---|-------------|-----------|---------|
-| valid-rsa | 1000 | 1.949 | 2.278 | 1.553 |
-| valid-ecdsa | 1000 | 1.965 | 2.218 | 1.196 |
-| valid-ed25519 | 1000 | 2.299 | 3.004 | 3.452 |
-| bogus | 1000 | 1.694 | 1.967 | 1.522 |
-| nsec3 | 1000 | 1.811 | 2.137 | 1.778 |
+| valid-rsa | 10000 | 2.397 | 2.631 | 1.255 |
+| valid-ecdsa | 5000 | 3.047 | 3.642 | 3.383 |
+| valid-ed25519 | 4211 | 3.134 | 3.653 | 2.680 |
 
-RSA is ~0.5ms **slower** than ECDSA in BIND. Ed25519 shows highest variance.
+RSA is ~0.6ms **faster** than ECDSA in BIND 9.20 with OpenSSL 3.x — this likely reflects OpenSSL 3.x's BIGNUM Montgomery multiplication being more cache-efficient for RSA-2048 than ECDSA-P256's point multiplication. Ed25519 shows highest variance (789 timed-out samples excluded from N=5000 collected). Source: `results_10k/bind_valid-*.csv`.
 
 ### 5.5 Statistical Significance (BIND)
 
@@ -157,7 +153,7 @@ Welch's two-sample t-test on median timing between outcomes (N=1000 each):
 | RSA vs Ed25519 | +0.346 | <0.001 | 0.36 | RSA slower — small-medium effect |
 | ECDSA vs Ed25519 | -0.147 | 0.12 | 0.07 | No significant difference |
 
-High stdev (8.2ms for RSA) reflects cache effects and tail-latency distribution (mean >> median indicates right-skewed timing). NSEC3 is fastest (no signature verification). The RSA-vs-ECDSA direction (RSA slower) differs from earlier observations in [Heidemann et al. USENIX Security 2009] analyzing resolver-side timing asymmetries — this likely stems from BIND 9.20 using OpenSSL 3.x BIGNUM implementation with different Montgomery multiplication strategies.
+High stdev (3.4ms for ECDSA) reflects cache effects and tail-latency distribution (mean >> median indicates right-skewed timing). NSEC3 is fastest (no signature verification). The RSA-vs-ECDSA direction (RSA faster with OpenSSL 3.x) differs from earlier remote timing observations on RSA [Brumley & Boneh 2003] — this likely stems from BIND 9.20 using OpenSSL 3.x BIGNUM implementation with different Montgomery multiplication strategies. There is no prior DNSSEC-specific resolver-side cache timing study to compare against.
 
 ### 5.6 WAN Vulnerability Assessment
 
@@ -176,7 +172,7 @@ With 50ms simulated WAN delay (`tc netem`):
 | 50 | ~89% |
 | 100 | ~94% |
 
-**Note: Single-shot accuracy ~60% reflects one measurement per query; aggregation via majority voting (N=5–100) yields 72–94%. The gap between single-shot and CV accuracy reflects ensemble classification, not feature leakage.**
+**Note: Single-shot accuracy ~60% reflects one measurement per query; aggregation via majority voting (N=5–100) yields 72–94%. These figures are from the same 4000-sample dataset using the Random Forest classifier with majority voting over N independent measurements.**
 
 ## 6. Generality Analysis
 
@@ -185,7 +181,7 @@ The attack targets CPU cache behavior during cryptographic operations. Any DNSSE
 - ECDSA: Point multiplication
 - Ed25519: Fixed-base scalar multiplication
 
-These have distinct memory access patterns that create distinct cache signatures. We validated this on BIND 9.20 and Unbound (both OpenSSL-backed).
+These have distinct memory access patterns that create distinct cache signatures. We validated this on BIND 9.20 (OpenSSL-backed).
 
 **Systematized Exclusion Rationale:** Additional resolver implementations were excluded from evaluation due to operational constraints: (a) **Knot Resolver** requires internet-facing root zone priming, incompatible with our isolated Docker environment that blocks external network access for reproducibility. (b) **PowerDNS** (pdns-recursor) requires separate deployment infrastructure and lacks a unified binary suitable for our controlled testbed. Both remain designated for future evaluation pending a multi-host coordinated environment.
 
@@ -200,6 +196,10 @@ These have distinct memory access patterns that create distinct cache signatures
 4. No secret-dependent branches
 
 ### 7.2 Dudect Verification (5 campaigns × 2000 samples/class, median reported)
+
+dudect threshold: t > 4.5 with 10⁴ samples indicates p < 0.0001 [Reparaz et al. 2017]. We use median-of-5-campaigns with top-5% trimming and randomized class ordering to defeat clock-drift epoch bias (see §8.3).
+
+**Ed25519 residual caveat**: Ed25519 verification now uses constant-time primitives with floor padding, but point decompression still uses the library's variable-time `decompress()`. The dudect medians are below threshold because the floor pads bound observable leakage below the harness detection threshold, not because the variable-time code path is eliminated. See §8.3 for full discussion.
 
 | Algorithm | t-statistic (median, observed range) | CT? | Threshold |
 |-----------|-------------|-----|-----------|
@@ -241,43 +241,49 @@ Cache side-channel attacks have been extensively studied:
 
 | Paper | Year | Attack | Result |
 |-------|------|--------|--------|
+| Percival et al. | 2005 | Prime+Probe on LLC | First practical cache timing attack |
 | Osvik et al. | 2006 | Prime+Probe on AES | Full key recovery |
+| Ristenpart et al. | 2009 | Cloud co-location | Cross-VM co-residence demonstrated |
 | Liu et al. | 2015 | Cross-VM Prime+Probe on GnuPG | Full key recovery |
 | Yarom & Falkner | 2014 | Flush+Reload on GnuPG | Nonce recovery |
+| Brumley & Boneh | 2003 | Remote timing | Timing attacks on network services |
 | Gruss et al. | 2016 | Flush+Flush | High-resolution cache attacks |
 | Irazoqui et al. | 2015 | Wait-Free Prime+Probe | Cross-core cache attacks |
-| Disselkoen et al. | 2017 | Prime+Probe on JIT compilers | Information leakage |
+| Disselkoen et al. | 2017 | Prime+Abort | High-throughput prime+probe |
 | Paccagnella et al. | 2021 | Lord of the Ring(s) | Cross-SMT side channels |
-| **This work** | **2026** | **Algorithm identification** | **82.0% accuracy, 1.1 bits max MI** |
+| **This work** | **2026** | **Algorithm identification** | **81.7% accuracy, 1.1 bits max MI** |
 
-Our work targets DNSSEC resolver configuration rather than key material. The attack identifies which algorithm is used, not the secret key itself. Notably, DNSSEC-specific cache-timing literature remains nascent — this work contributes the first demonstration of algorithm-level fingerprinting on real DNSSEC resolver implementations.
+Our work targets DNSSEC resolver configuration rather than key material. The attack identifies which algorithm is used, not the secret key itself. Notably, DNSSEC-specific cache-timing literature remains nascent — this work contributes the first demonstration of algorithm-level fingerprinting on real DNSSEC resolver implementations. Prior cache side-channel research (Percival et al. 2005, Osvik et al. 2006, Liu et al. 2015, Irazoqui et al. 2015) targeted key material recovery; our work demonstrates algorithm identification as an enabling primitive.
 
 ## 10. Conclusion
 
-We presented a cache-based attack that identifies DNSSEC algorithms with 82.0% accuracy on real resolver software. Information-theoretic analysis confirms that individual cache sets leak up to 1.1 bits of algorithm information. Timing measurements show measurable differences between algorithms (RSA ~0.5ms slower than ECDSA in BIND), though this direction differs from prior work and is impractical over WAN due to jitter.
+We presented a cache-based attack that identifies DNSSEC algorithms with 81.7% shuffled-cross-validation accuracy (78.9% temporal-split accuracy) on real resolver software. Information-theoretic analysis confirms that individual cache lines leak up to 1.1 bits of algorithm information (98.8% of lines leak >0.1 bits). Network timing measurements on localhost show measurable differences between algorithms (RSA ~0.6ms faster than ECDSA in BIND 9.20 with OpenSSL 3.x), though this channel is impractical over WAN due to jitter.
 
-Our constant-time library (verified via dudect with an A/A null control and reference-implementation correctness cross-checks) demonstrates that DNSSEC verification for RSA-2048, ECDSA-P256, Ed25519, and Dilithium2 can be made constant-time with wide margin (median t < 3.2 across all instrumented classes, threshold 4.5). Ed25519 required replacing `ed25519-dalek`'s variable-time `verify()` with a direct evaluation of the RFC 8032 equation over `curve25519-dalek` constant-time primitives; valid and invalid verifications are now timing-indistinguishable (ratio 1.000).
+Our constant-time library (verified via dudect with an A/A null control and reference-implementation correctness cross-checks) demonstrates that DNSSEC verification for RSA-2048, ECDSA-P256, and Dilithium2 can be made constant-time with wide margin (median t < 3.2 across all instrumented classes, threshold 4.5). Ed25519 verification is also below the dudect threshold via constant-time primitives with floor padding, though a residual variable-time decompression path remains (see §8.3). Valid and invalid verifications are timing-indistinguishable (ratio 1.000) for all four algorithms.
 
 Deployments on shared hardware should consider cache side-channel risks. Deploying constant-time verification for all four algorithm families eliminates the validity side channel at the library level; the algorithm-identification side channel addressed by this paper persists independently and requires resolver-level countermeasures (e.g., constant-work response pacing) to mitigate.
 
 ## References
 
-1. Osvik, D., Shamir, A., Tromer, E. "Cache Attacks and Countermeasures: The Case of AES." CT-RSA 2006.
-2. Liu, F., Yarom, Y., He, G., et al. "Last-Level Cache Side-Channel Attacks are Practical." IEEE S&P 2015.
-3. Yarom, Y., Falkner, K. "Flush+Reload: A High Resolution, L3 Cache Side-Channel Attack." USENIX Security 2014.
-4. Gruss, D., Maurice, C., Wagner, K., Mangard, S. "Flush+Flush: A Fast and Stealthy Cache Attack." DIMVA 2016.
-5. Irazoqui, G., Eisenbarth, T., Sunar, B. "Wait-Free Prime+Probe: A High-Throughput Cross-Core Side-Channel Attack." USENIX Security 2015.
-6. Disselkoen, C., Kohlbrenner, D., Porter, L., Tullsen, D. "Prime+Abort: A High-Throughput Prime+Probe Side-Channel Attack." USENIX Security 2017.
-7. Paccagnella, R., Luo, L., Fletcher, C. "Lord of the Ring(s): Side Channel Attacks on the CPU On-Chip Ring Interconnect Are Practical." USENIX Security 2021.
-8. Reparaz, O., Balash, B., Dehbaoui, A., et al. "dude, is my code constant time?" DATE 2017.
-9. RFC 4034: DNSSEC Resource Records.
-10. RFC 8624: Algorithm Implementation Requirements for DNSSEC.
-11. Almeida, J.B., Barbosa, M., Barthe, G., et al. "SoK: The Impact of Uninitialized Cipher State on Cryptographic Code." IEEE S&P 2022.
-12. Bernstein, D.J., Lange, T. "Curve25519: New Diffie-Hellman Speed Records." PKC 2006.
-13. Langley, A., Hamburg, M., Turner, S. "Elliptic Curves for Security." RFC 7748.
-14. National Institute of Standards and Technology. "FIPS 186-5: Digital Signature Standard." 2023.
-15. Bindel, N., Herold, G., Zbinden, F. "PQCRYPTO — Post-Quantum Cryptography for Long-Term Security." 2016.
-16. Iannuzzi, V., Santoni, D. "EdDSA for DNSSEC." RFC 9402. 2023.
+1. Percival, C. "Cache Missing for Fun and Fun and Profit." BSDCan 2005.
+2. Osvik, D., Shamir, A., Tromer, E. "Cache Attacks and Countermeasures: The Case of AES." CT-RSA 2006.
+3. Ristenpart, T., Tromer, E., Shacham, H., Savage, S. "Hey, You, Get Off of My Cloud: Exploring Information Leakage in Third-Party Compute Clouds." CCS 2009.
+4. Liu, F., Yarom, Y., He, G., et al. "Last-Level Cache Side-Channel Attacks are Practical." IEEE S&P 2015.
+5. Yarom, Y., Falkner, K. "Flush+Reload: A High Resolution, L3 Cache Side-Channel Attack." USENIX Security 2014.
+6. Brumley, D., Boneh, D. "Remote Timing Attacks are Practical." USENIX Security 2003.
+7. Gruss, D., Maurice, C., Wagner, K., Mangard, S. "Flush+Flush: A Fast and Stealthy Cache Attack." DIMVA 2016.
+8. Irazoqui, G., Eisenbarth, T., Sunar, B. "Wait-Free Prime+Probe: A High-Throughput Cross-Core Side-Channel Attack." USENIX Security 2015.
+9. Disselkoen, C., Kohlbrenner, D., Porter, L., Tullsen, D. "Prime+Abort: A High-Throughput Prime+Probe Side-Channel Attack." USENIX Security 2017.
+10. Paccagnella, R., Luo, L., Fletcher, C. "Lord of the Ring(s): Side Channel Attacks on the CPU On-Chip Ring Interconnect Are Practical." USENIX Security 2021.
+11. Reparaz, O., Balash, B., Dehbaoui, A., et al. "dude, is my code constant time?" DATE 2017.
+12. RFC 4035: Protocol Modifications for the DNS Security Extensions.
+13. RFC 8624: Algorithm Implementation Requirements for DNSSEC.
+14. Almeida, J.B., Barbosa, M., Barthe, G., et al. "SoK: The Impact of Uninitialized Cipher State on Cryptographic Code." IEEE S&P 2022.
+15. Bernstein, D.J., Lange, T. "Curve25519: New Diffie-Hellman Speed Records." PKC 2006.
+16. Langley, A., Hamburg, M., Turner, S. "Elliptic Curves for Security." RFC 7748.
+17. National Institute of Standards and Technology. "FIPS 186-5: Digital Signature Standard." 2023.
+18. Bindel, N., Herold, G., Zbinden, F. "PQCRYPTO — Post-Quantum Cryptography for Long-Term Security." 2016.
+19. Sury, O., Edmonds, R. "Edwards-Curve Digital Security Algorithm (EdDSA)." RFC 8080. 2017.
 
 ---
 

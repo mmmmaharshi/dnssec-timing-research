@@ -12,8 +12,8 @@
 This artifact contains:
 1. **Attack harness** (`harness/`) — Prime+Probe cache measurement tool
 2. **Analysis scripts** (`analysis/`) — ML classifier and leakage quantification
-3. **Constant-time library** (`constant-time-dnssec/`) — Rust CT verification primitives (RSA/ECDSA/Dilithium2; Ed25519 remains an open challenge)
-4. **Docker environment** (`docker/`) — Reproducible test setup with BIND/Unbound/Knot
+3. **Constant-time library** (`constant-time-dnssec/`) — Rust CT verification primitives (RSA/ECDSA/Ed25519/Dilithium2; Ed25519 verified with residual decompression caveat, see §8.3)
+4. **Docker environment** (`docker/`) — Reproducible test setup with BIND/Unbound (Knot included but excluded from evaluation — requires internet-facing root zone priming)
 5. **Results** (`results_cache_attack/`) — Raw data and analysis outputs
 
 ---
@@ -55,7 +55,7 @@ This starts:
 - `dnssec-auth` — Authoritative server with signed zones (port 15353)
 - `dnssec-bind` — BIND resolver with DNSSEC validation (port 15354)
 - `dnssec-unbound` — Unbound resolver (port 15355)
-- `dnssec-knot` — Knot Resolver with DNSSEC validation (port 15356)
+- `dnssec-knot` — Knot Resolver (port 15356; excluded from evaluation — requires internet-facing root zone priming)
 
 Verify all resolvers are running:
 
@@ -68,14 +68,14 @@ python test_resolvers.py
 
 ```bash
 cd harness
-./cache_probe --rounds 500 --label rsa -o rsa_timings.csv --trigger /tmp/trigger --done /tmp/done
+./cache_probe --rounds 1000 --label rsa -o rsa_timings.csv --trigger /tmp/trigger --done /tmp/done
 ```
 
 ### 4. Analyze Results
 
 ```bash
 cd analysis
-pip install -r requirements.txt
+uv pip install -r requirements.txt 2>/dev/null || pip install -r requirements.txt
 
 # Train classifier
 python cache_classifier.py --input ../results_cache_attack/combined_cache.csv --output results/
@@ -100,21 +100,21 @@ cargo bench
 
 ## Reproducing Key Results
 
-### Classification Accuracy (82.0%)
+### Classification Accuracy (81.7%)
 
 ```bash
-python analysis/cache_classifier.py --input results_cache_attack/combined_cache.csv
+uv run python analysis/cache_classifier.py --input results_cache_attack/combined_cache.csv
 ```
 
-Expected output: ~82% cross-validation accuracy (5-fold).
+Expected output: ~81.7% cross-validation accuracy (5-fold, n=4000). Temporal-split accuracy: ~78.9%.
 
 ### Information Leakage (1.1 bits max MI)
 
 ```bash
-python analysis/leakage_quantification.py --input results_cache_attack/combined_cache.csv
+uv run python analysis/leakage_quantification.py --input results_cache_attack/combined_cache.csv
 ```
 
-Expected output: Max MI ~1.1 bits for single cache set.
+Expected output: Max MI ~1.1 bits for single cache line (2048 lines sampled). 98.8% of lines leak >0.1 bits.
 
 ### Dudect CT Verification
 
